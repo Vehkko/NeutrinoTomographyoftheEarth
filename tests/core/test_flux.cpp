@@ -1,10 +1,21 @@
 #include <nt/flux.hpp>
+#include <nt/types.hpp>
+#include <vndarray/ndarray.hpp>
 
-#include <hdf5.h>
-
+#include <H5Dpublic.h>
+#include <H5Fpublic.h>
+#include <H5Gpublic.h>
+#include <H5Ipublic.h>
+#include <H5Ppublic.h>
+#include <H5Spublic.h>
+#include <H5Tpublic.h>
+#include <H5public.h>
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <exception>
 #include <filesystem>
+#include <hdf5.h>
 #include <iostream>
 #include <stdexcept>
 #include <string>

@@ -1,13 +1,24 @@
 #include <nt/flux.hpp>
+#include <nt/types.hpp>
+#include <vndarray/ndarray.hpp>
 
-#include <hdf5.h>
-
+#include <H5Dpublic.h>
+#include <H5Fpublic.h>
+#include <H5Ipublic.h>
+#include <H5Ppublic.h>
+#include <H5Spublic.h>
+#include <H5Tpublic.h>
+#include <H5public.h>
 #include <array>
 #include <cassert>
+#include <cstddef>
+#include <filesystem>
 #include <limits>
 #include <memory>
+#include <nuSQuIDS/marray.h>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <vector>
 

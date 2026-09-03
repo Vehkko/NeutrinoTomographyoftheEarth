@@ -4,13 +4,11 @@
 #include <filesystem>
 #include <string_view>
 
+#include <nt/types.hpp>
 #include <nuSQuIDS/marray.h>
 #include <vndarray/ndarray.hpp>
 
 namespace nt {
-
-    using Real_t  = double;
-    using Index_t = std::size_t;
 
     namespace nsq = nusquids;
     namespace nda = vehkko::ndarray;

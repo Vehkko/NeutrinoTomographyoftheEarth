@@ -192,7 +192,7 @@ apply_native_stack()
 
 add_includedirs(path.join(root, "include"), vndarray_include, { public = true })
 
-add_files("src/flux.cpp")
+add_files("src/flux.cpp", "src/response.cpp", "src/events.cpp")
 
 -- ============================================================
 -- Flux
@@ -207,3 +207,16 @@ add_includedirs(path.join(root, "include"), vndarray_include)
 
 add_deps("ntcore")
 add_files("tests/core/test_flux.cpp")
+
+-- ============================================================
+-- Response & Events
+-- ============================================================
+target("test_response_events")
+set_kind("binary")
+
+apply_native_stack()
+
+add_includedirs(path.join(root, "include"), vndarray_include)
+
+add_deps("ntcore")
+add_files("tests/core/test_response_events.cpp")
