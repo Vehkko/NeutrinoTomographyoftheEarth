@@ -1,0 +1,17 @@
+name: nuSQuIDS
+channels:
+    - conda-forge
+dependencies:
+    - python>=3.9,<3.13
+    - jupyter
+    - jupyterlab
+    - matplotlib
+    - numpy
+    - ipython
+    - gsl
+    - hdf5
+    - pybind11
+    - pkg-config
+    - cmake
+    - ninja
+    - cxx-compiler

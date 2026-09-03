@@ -1,0 +1,638 @@
+ /******************************************************************************
+ *    This program is free software: you can redistribute it and/or modify     *
+ *   it under the terms of the GNU General Public License as published by      *
+ *   the Free Software Foundation, either version 3 of the License, or         *
+ *   (at your option) any later version.                                       *
+ *                                                                             *
+ *   This program is distributed in the hope that it will be useful,           *
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of            *
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the             *
+ *   GNU General Public License for more details.                              *
+ *                                                                             *
+ *   You should have received a copy of the GNU General Public License         *
+ *   along with this program.  If not, see <http://www.gnu.org/licenses/>.     *
+ *                                                                             *
+ *   Authors:                                                                  *
+ *      Carlos Arguelles (University of Wisconsin Madison)                     *
+ *         carguelles@icecube.wisc.edu                                         *
+ *      Jordi Salvado (University of Wisconsin Madison)                        *
+ *         jsalvado@icecube.wisc.edu                                           *
+ *      Christopher Weaver (University of Wisconsin Madison)                   *
+ *         chris.weaver@icecube.wisc.edu                                       *
+ ******************************************************************************/
+
+#include "nuSQUIDSpy.h"
+
+// Converter for Python list -> std::vector<bool>
+struct ListToVectorBool {
+    ListToVectorBool() {
+        boost::python::converter::registry::push_back(
+            &convertible,
+            &construct,
+            boost::python::type_id<std::vector<bool>>());
+    }
+
+    static void* convertible(PyObject* obj_ptr) {
+        if (!PySequence_Check(obj_ptr)) return nullptr;
+        return obj_ptr;
+    }
+
+    static void construct(PyObject* obj_ptr, boost::python::converter::rvalue_from_python_stage1_data* data) {
+        void* storage = ((boost::python::converter::rvalue_from_python_storage<std::vector<bool>>*)data)->storage.bytes;
+        new (storage) std::vector<bool>();
+        std::vector<bool>* vec = (std::vector<bool>*)storage;
+        int len = PySequence_Size(obj_ptr);
+        vec->reserve(len);
+        for (int i = 0; i < len; ++i) {
+            PyObject* item = PySequence_GetItem(obj_ptr, i);
+            vec->push_back(PyObject_IsTrue(item));
+            Py_DECREF(item);
+        }
+        data->convertible = storage;
+    }
+};
+
+// Converter for Python dict -> std::map<PDGCode, double>
+struct DictToPDGCodeDoubleMap {
+    DictToPDGCodeDoubleMap() {
+        boost::python::converter::registry::push_back(
+            &convertible,
+            &construct,
+            boost::python::type_id<std::map<PDGCode, double>>());
+    }
+
+    static void* convertible(PyObject* obj_ptr) {
+        if (!PyDict_Check(obj_ptr)) return nullptr;
+        return obj_ptr;
+    }
+
+    static void construct(PyObject* obj_ptr, boost::python::converter::rvalue_from_python_stage1_data* data) {
+        void* storage = ((boost::python::converter::rvalue_from_python_storage<std::map<PDGCode, double>>*)data)->storage.bytes;
+        new (storage) std::map<PDGCode, double>();
+        std::map<PDGCode, double>* result = (std::map<PDGCode, double>*)storage;
+
+        boost::python::dict pydict = boost::python::extract<boost::python::dict>(obj_ptr);
+        boost::python::list keys = pydict.keys();
+        for (int i = 0; i < boost::python::len(keys); ++i) {
+            PDGCode key = boost::python::extract<PDGCode>(keys[i]);
+            double value = boost::python::extract<double>(pydict[keys[i]]);
+            (*result)[key] = value;
+        }
+        data->convertible = storage;
+    }
+};
+
+// Converter for Python dict -> std::map<PDGCode, std::vector<double>>
+struct DictToPDGCodeVectorMap {
+    DictToPDGCodeVectorMap() {
+        boost::python::converter::registry::push_back(
+            &convertible,
+            &construct,
+            boost::python::type_id<std::map<PDGCode, std::vector<double>>>());
+    }
+
+    static void* convertible(PyObject* obj_ptr) {
+        if (!PyDict_Check(obj_ptr)) return nullptr;
+        return obj_ptr;
+    }
+
+    static void construct(PyObject* obj_ptr, boost::python::converter::rvalue_from_python_stage1_data* data) {
+        void* storage = ((boost::python::converter::rvalue_from_python_storage<std::map<PDGCode, std::vector<double>>>*)data)->storage.bytes;
+        new (storage) std::map<PDGCode, std::vector<double>>();
+        std::map<PDGCode, std::vector<double>>* result = (std::map<PDGCode, std::vector<double>>*)storage;
+
+        boost::python::dict pydict = boost::python::extract<boost::python::dict>(obj_ptr);
+        boost::python::list keys = pydict.keys();
+        for (int i = 0; i < boost::python::len(keys); ++i) {
+            PDGCode key = boost::python::extract<PDGCode>(keys[i]);
+            std::vector<double> value = boost::python::extract<std::vector<double>>(pydict[keys[i]]);
+            (*result)[key] = value;
+        }
+        data->convertible = storage;
+    }
+};
+
+// Converter for std::map<PDGCode, double> -> Python dict
+struct PDGCodeDoubleMapToDict {
+    static PyObject* convert(const std::map<PDGCode, double>& map) {
+        boost::python::dict result;
+        for (const auto& pair : map) {
+            result[pair.first] = pair.second;
+        }
+        return boost::python::incref(result.ptr());
+    }
+};
+
+// Converter for Python list of lists -> std::vector<std::vector<double>>
+struct ListToVectorVectorDouble {
+    ListToVectorVectorDouble() {
+        boost::python::converter::registry::push_back(
+            &convertible,
+            &construct,
+            boost::python::type_id<std::vector<std::vector<double>>>());
+    }
+
+    static void* convertible(PyObject* obj_ptr) {
+        if (!PySequence_Check(obj_ptr)) return nullptr;
+        return obj_ptr;
+    }
+
+    static void construct(PyObject* obj_ptr, boost::python::converter::rvalue_from_python_stage1_data* data) {
+        void* storage = ((boost::python::converter::rvalue_from_python_storage<std::vector<std::vector<double>>>*)data)->storage.bytes;
+        new (storage) std::vector<std::vector<double>>();
+        std::vector<std::vector<double>>* vec = (std::vector<std::vector<double>>*)storage;
+        int len = PySequence_Size(obj_ptr);
+        vec->reserve(len);
+        for (int i = 0; i < len; ++i) {
+            PyObject* item = PySequence_GetItem(obj_ptr, i);
+            std::vector<double> inner = boost::python::extract<std::vector<double>>(item);
+            vec->push_back(inner);
+            Py_DECREF(item);
+        }
+        data->convertible = storage;
+    }
+};
+
+// Wrappers for EvalFlavor with vector<bool> passed by value
+double EvalFlavorWrapperEnergy(nuSQUIDS& obj, unsigned int flav, double E, unsigned int current, double x, std::vector<bool> mask) {
+    return obj.EvalFlavor(flav, E, current, x, mask);
+}
+double EvalFlavorWrapper(nuSQUIDS& obj, unsigned int flav, double x, std::vector<bool> mask) {
+    return obj.EvalFlavor(flav, x, mask);
+}
+double EvalFlavorWrapperAtm(nuSQUIDSAtm<nuSQUIDS>& obj, unsigned int flav, double costh, double E, unsigned int current, double x, std::vector<bool> mask){
+    return obj.EvalFlavor(flav, costh, E, current, x, mask);
+}
+
+
+BOOST_PYTHON_MODULE(nuSQuIDS)
+{
+  // import numpy array definitions
+  //np::initialize();
+  import_ufunc();
+#if PY_VERSION_HEX >= 0x03000000
+  import_array1();
+#else
+  import_array();
+#endif
+
+  // register list-to-vector<bool> converter
+  ListToVectorBool();
+
+  // register map converters for composition
+  DictToPDGCodeDoubleMap();
+  DictToPDGCodeVectorMap();
+  ListToVectorVectorDouble();
+  boost::python::to_python_converter<std::map<PDGCode, double>, PDGCodeDoubleMapToDict>();
+
+  enum_<GSL_STEP_FUNCTIONS>("GSL_STEP_FUNCTIONS")
+    .value("GSL_STEP_RK2",GSL_STEP_RK2)
+    .value("GSL_STEP_RK4",GSL_STEP_RK4)
+    .value("GSL_STEP_RKF45",GSL_STEP_RKF45)
+    .value("GSL_STEP_RKCK",GSL_STEP_RKCK)
+    .value("GSL_STEP_RK8PD",GSL_STEP_RK8PD)
+    .value("GSL_STEP_MSADAMS",GSL_STEP_MSADAMS)
+  ;
+
+
+/*BOOST_PYTHON_MODULE(nuSQuIDS)
+{
+  // import numpy array definitions
+  //np::initialize();
+  import_ufunc();
+#if PY_VERSION_HEX >= 0x03000000
+  import_array1();
+#else
+  import_array();
+#endif
+
+  enum_<GSL_STEP_FUNCTIONS>("GSL_STEP_FUNCTIONS")
+    .value("GSL_STEP_RK2",GSL_STEP_RK2)
+    .value("GSL_STEP_RK4",GSL_STEP_RK4)
+    .value("GSL_STEP_RKF45",GSL_STEP_RKF45)
+    .value("GSL_STEP_RKCK",GSL_STEP_RKCK)
+    .value("GSL_STEP_RK8PD",GSL_STEP_RK8PD)
+    .value("GSL_STEP_MSADAMS",GSL_STEP_MSADAMS)
+  ;
+*/
+  enum_<Basis>("Basis")
+    .value("mass",mass)
+    .value("flavor",flavor)
+    .value("interaction",interaction)
+  ;
+
+  enum_<NeutrinoCrossSections::NeutrinoFlavor>("NeutrinoCrossSections_NeutrinoFlavor")
+    .value("electron",NeutrinoCrossSections::NeutrinoFlavor::electron)
+    .value("muon",NeutrinoCrossSections::NeutrinoFlavor::muon)
+    .value("tau",NeutrinoCrossSections::NeutrinoFlavor::tau)
+    .value("sterile",NeutrinoCrossSections::NeutrinoFlavor::sterile)
+  ;
+
+  enum_<NeutrinoCrossSections::NeutrinoType>("NeutrinoCrossSections_NeutrinoType")
+    .value("neutrino",NeutrinoCrossSections::NeutrinoType::neutrino)
+    .value("antineutrino",NeutrinoCrossSections::NeutrinoType::antineutrino)
+  ;
+
+  enum_<NeutrinoCrossSections::Current>("NeutrinoCrossSections_Current")
+    .value("CC",NeutrinoCrossSections::Current::CC)
+    .value("NC",NeutrinoCrossSections::Current::NC)
+    .value("GR",NeutrinoCrossSections::Current::GR)
+  ;
+
+  class_<squids::SU_vector, std::shared_ptr<squids::SU_vector> >("SU_vector")
+    .def(init< std::vector<double> >())
+    .def(init<unsigned int>())
+    .def(init<const squids::SU_vector&>())
+    .def("Dim",&squids::SU_vector::Dim)
+    .def("Size",&squids::SU_vector::Size)
+    .def("SetAllComponents",&squids::SU_vector::SetAllComponents)
+    .def("GetComponents",&squids::SU_vector::GetComponents)
+    .def("Rotate",(squids::SU_vector(squids::SU_vector::*)(unsigned int, unsigned int, double, double) const)&squids::SU_vector::Rotate)
+    .def("RotateToB0",&squids::SU_vector::RotateToB0)
+    .def("RotateToB1",&squids::SU_vector::RotateToB1)
+    .def("WeightedRotation",(void(squids::SU_vector::*)(const squids::Const&, const squids::SU_vector&, const squids::Const&))&squids::SU_vector::WeightedRotation)
+    .def("Transpose",&squids::SU_vector::Transpose)
+    .def("Imag",&squids::SU_vector::Imag)
+    .def("Real",&squids::SU_vector::Real)
+    //.def("UTransform",(squids::SU_vector(squids::SU_vector::*)(const squids::SU_vector, gsl_complex))&squids::SU_vector::UTransform)
+    //.def("GetEigenSystem",(std::unique_ptr<gsl_matrix_complex,void (*)(gsl_matrix_complex*)>(squids::SU_vector::*)())&squids::SU_vector::GetEigenSystem)
+    //.def("GetGSLMatrix",(std::unique_ptr<gsl_matrix_complex,void (*)(gsl_matrix_complex*)>(squids::SU_vector::*)())&squids::SU_vector::GetGSLMatrix)
+    .def(self += self)
+    .def(self + self)
+    .def(self -= self)
+    .def(self - self)
+    .def(self * double())
+    .def(double() * self)
+    .def(self *= double())
+    .def(self * self)
+    .def(self /= double())
+    .def(self == self)
+    .def(-self)
+    .def(self_ns::str(self_ns::self))
+    .def("Projector",&squids::SU_vector::Projector)
+    .def("Identity",&squids::SU_vector::Identity).staticmethod("Identity")
+    .def("PosProjector",&squids::SU_vector::PosProjector)
+    .def("NegProjector",&squids::SU_vector::NegProjector)
+    .def("Generator",&squids::SU_vector::Generator).staticmethod("Generator")
+  ;
+
+  class_<squids::detail::AdditionProxy, std::shared_ptr<squids::detail::AdditionProxy>>("AdditionProxy", no_init);
+  implicitly_convertible< squids::detail::AdditionProxy , squids::SU_vector >();
+
+  class_<squids::detail::SubtractionProxy, std::shared_ptr<squids::detail::SubtractionProxy>>("SubtractionProxy", no_init);
+  implicitly_convertible< squids::detail::SubtractionProxy, squids::SU_vector >();
+
+  class_<squids::detail::NegationProxy, std::shared_ptr<squids::detail::NegationProxy>>("NegationProxy", no_init);
+  implicitly_convertible< squids::detail::NegationProxy, squids::SU_vector >();
+
+  class_<squids::detail::EvolutionProxy, std::shared_ptr<squids::detail::EvolutionProxy>>("EvolutionProxy", no_init);
+  implicitly_convertible< squids::detail::EvolutionProxy, squids::SU_vector >();
+
+  class_<squids::detail::MultiplicationProxy, std::shared_ptr<squids::detail::MultiplicationProxy>>("MultiplicationProxy", no_init);
+  implicitly_convertible< squids::detail::MultiplicationProxy, squids::SU_vector >();
+
+  class_<squids::detail::iCommutatorProxy, std::shared_ptr<squids::detail::iCommutatorProxy>>("iCommutatorProxy", no_init);
+  implicitly_convertible< squids::detail::iCommutatorProxy, squids::SU_vector >();
+
+  class_<squids::detail::ACommutatorProxy, std::shared_ptr<squids::detail::ACommutatorProxy>>("ACommutatorProxy", no_init);
+  implicitly_convertible< squids::detail::ACommutatorProxy, squids::SU_vector >();
+
+  enum_<NeutrinoType>("NeutrinoType")
+    .value("neutrino",neutrino)
+    .value("antineutrino",antineutrino)
+    .value("both",both)
+  ;
+
+  bp::def("linspace",linspace,bp::args("min","max","samples"));
+  bp::def("logspace",logspace,bp::args("min","max","samples"));
+
+  RegisterBasicNuSQuIDSPythonBindings<nuSQUIDS>("nuSQUIDS");
+  RegisterBasicAtmNuSQuIDSPythonBindings<nuSQUIDS>("nuSQUIDSAtm");
+
+  class_<NeutrinoCrossSections, std::shared_ptr<NeutrinoCrossSections>, boost::noncopyable >("NeutrinoCrossSections", no_init);
+
+  class_<NullCrossSections, bases<NeutrinoCrossSections>, std::shared_ptr<NullCrossSections>, boost::noncopyable >("NullCrossSections")
+    .def("TotalCrossSection",&NullCrossSections::TotalCrossSection)
+    .def("SingleDifferentialCrossSection",&NullCrossSections::SingleDifferentialCrossSection)
+  ;
+
+  class_<GlashowResonanceCrossSection, bases<NeutrinoCrossSections>, std::shared_ptr<GlashowResonanceCrossSection>, boost::noncopyable >("GlashowResonanceCrossSection")
+    .def("TotalCrossSection",&GlashowResonanceCrossSection::TotalCrossSection)
+    .def("SingleDifferentialCrossSection",&GlashowResonanceCrossSection::SingleDifferentialCrossSection)
+    .def("WDecayBranchingFraction",&GlashowResonanceCrossSection::WDecayBranchingFraction)
+  ;
+
+  class_<NeutrinoDISCrossSectionsFromTables, bases<NeutrinoCrossSections>, std::shared_ptr<NeutrinoDISCrossSectionsFromTables>, boost::noncopyable>("NeutrinoDISCrossSectionsFromTables")
+    .def(init<std::string>())
+    .def("TotalCrossSection",&NeutrinoDISCrossSectionsFromTables::TotalCrossSection)
+    .def("SingleDifferentialCrossSection",&NeutrinoDISCrossSectionsFromTables::SingleDifferentialCrossSection)
+    .def("GetEmin",&NeutrinoDISCrossSectionsFromTables::GetEmin)
+    .def("GetEmax",&NeutrinoDISCrossSectionsFromTables::GetEmax)
+    .def("WriteHDF",&NeutrinoDISCrossSectionsFromTables::WriteHDF)
+    .def("WriteText",&NeutrinoDISCrossSectionsFromTables::WriteText)
+  ;
+  
+  enum_<PDGCode>("PDGCode")
+    .value("electron",electron)
+    .value("isoscalar_nucleon",isoscalar_nucleon)
+    .value("proton",proton)
+    .value("neutron",neutron)
+    // Nuclear targets use PDG nuclear code format: 10LZZZAAAI
+    .value("hydrogen",hydrogen)
+    .value("deuteron",deuteron)
+    .value("carbon",carbon)
+    .value("oxygen",oxygen)
+    .value("sodium",sodium)
+    .value("magnesium",magnesium)
+    .value("aluminum",aluminum)
+    .value("silicon",silicon)
+    .value("sulfur",sulfur)
+    .value("calcium",calcium)
+    .value("iron",iron)
+    .value("nickel",nickel)
+    .value("tungsten",tungsten)
+    .value("lead",lead)
+  ;
+    
+  class_<CrossSectionLibrary, std::shared_ptr<CrossSectionLibrary>>("CrossSectionLibrary")
+    .def(init<>())
+    //TODO: map constructor?
+    .def("crossSectionForTarget", &CrossSectionLibrary::crossSectionForTarget)
+    .def("hasTarget", &CrossSectionLibrary::hasTarget)
+    .def("addTarget", (void(CrossSectionLibrary::*)(PDGCode, std::shared_ptr<NeutrinoCrossSections>))&CrossSectionLibrary::addTarget)
+    .def("numberOfTargets", &CrossSectionLibrary::numberOfTargets,
+         "Get the number of target types in the cross section library")
+    .def("targets", &CrossSectionLibrary::targets,
+         "Get the list of target PDG codes in the cross section library")
+  ;
+
+  bp::def("loadDefaultCrossSections",loadDefaultCrossSections,
+          "Load the default cross sections (CSMS proton/neutron).");
+  bp::def("loadWCG24CrossSections",loadWCG24CrossSections,
+          "Load WCG24 cross sections for proton/neutron targets (arXiv:2408.05866).");
+  bp::def("loadWCG24NuclearCrossSections",loadWCG24NuclearCrossSections,
+          "Load WCG24 cross sections for all nuclear targets in Earth composition (arXiv:2408.05866).");
+  bp::def("isNuclearPDGCode",isNuclearPDGCode,
+          "Check if a PDGCode is a nuclear code (format 10LZZZAAAI).");
+
+  class_<TauDecaySpectra, std::shared_ptr<TauDecaySpectra>, boost::noncopyable>("TauDecaySpectra")
+    .def(init<marray<double,1>>())
+    .def("dNdEnu_All",&TauDecaySpectra::dNdEnu_All)
+    .def("dNdEnu_Lep",&TauDecaySpectra::dNdEnu_Lep)
+    .def("dNdEle_All",&TauDecaySpectra::dNdEle_All)
+    .def("dNdEle_Lep",&TauDecaySpectra::dNdEle_Lep)
+    .def("GetTauToHadronBranchingRatio",&TauDecaySpectra::GetTauToHadronBranchingRatio)
+    .def("GetTauToLeptonBranchingRatio",&TauDecaySpectra::GetTauToLeptonBranchingRatio)
+    .def("TauDecayToLepton",&TauDecaySpectra::TauDecayToLepton)
+    .def("TauDecayToHadron",&TauDecaySpectra::TauDecayToHadron)
+    .def("TauDecayToAll",&TauDecaySpectra::TauDecayToAll)
+    .def("TauDecayToPion",&TauDecaySpectra::TauDecayToPion)
+    .def("TauDecayToRho",&TauDecaySpectra::TauDecayToRho)
+    .def("TauDecayToA1",&TauDecaySpectra::TauDecayToA1)
+  ;
+
+  class_<squids::Const, boost::noncopyable>("Const")
+  // fundamental constants
+    .def_readonly("GF",&squids::Const::GF)
+    .def_readonly("Na",&squids::Const::Na)
+    .def_readonly("GF",&squids::Const::GF)
+  // units
+    .def_readonly("PeV",&squids::Const::PeV)
+    .def_readonly("TeV",&squids::Const::TeV)
+    .def_readonly("GeV",&squids::Const::GeV)
+    .def_readonly("MeV",&squids::Const::MeV)
+    .def_readonly("keV",&squids::Const::keV)
+    .def_readonly("eV",&squids::Const::eV)
+    .def_readonly("kg",&squids::Const::kg)
+    .def_readonly("gr",&squids::Const::gr)
+    .def_readonly("meter",&squids::Const::meter)
+    .def_readonly("cm",&squids::Const::cm)
+    .def_readonly("km",&squids::Const::km)
+    .def_readonly("fermi",&squids::Const::fermi)
+    .def_readonly("angstrom",&squids::Const::angstrom)
+    .def_readonly("AU",&squids::Const::AU)
+    .def_readonly("parsec",&squids::Const::parsec)
+    .def_readonly("pb",&squids::Const::picobarn)
+    .def_readonly("fb",&squids::Const::femtobarn)
+    .def_readonly("sec",&squids::Const::sec)
+    .def_readonly("hour",&squids::Const::hour)
+    .def_readonly("day",&squids::Const::day)
+    .def_readonly("year",&squids::Const::year)
+    .def_readonly("picobarn",&squids::Const::picobarn)
+    .def_readonly("femtobarn",&squids::Const::femtobarn)
+    .def_readonly("Pascal",&squids::Const::Pascal)
+    .def_readonly("atm",&squids::Const::atm)
+    .def_readonly("psi",&squids::Const::psi)
+    .def_readonly("Kelvin",&squids::Const::Kelvin)
+    .def_readonly("C",&squids::Const::C)
+    .def_readonly("A",&squids::Const::A)
+    .def_readonly("T",&squids::Const::T)
+  // functions to set angles and rotations
+    .def("SetMixingAngle",&squids::Const::SetMixingAngle)
+    .def("GetMixingAngle",&squids::Const::GetMixingAngle)
+    .def("SetSquareMassDifference",&squids::Const::SetEnergyDifference)
+    .def("GetSquareMassDifference",&squids::Const::GetEnergyDifference)
+    .def("SetPhase",&squids::Const::SetPhase)
+    .def("GetPhase",&squids::Const::GetPhase)
+  ;
+
+  {
+    scope outer
+    = class_<Body, std::shared_ptr<Body>, boost::noncopyable >("Body", no_init)
+    .def("density",&Body::density)
+    .def("ye",&Body::ye)
+    .def("composition",&Body::composition,
+         "Get the composition at the current position on the track.\n"
+         "Returns a dictionary mapping PDGCode to number fraction.\n"
+         "For bodies without composition support, returns an empty dictionary.")
+    ;
+
+    class_<Body::Track, std::shared_ptr<Body::Track>, boost::noncopyable >("Track", no_init)
+    .def("GetInitialX",&Body::Track::GetInitialX)
+    .def("GetFinalX",&Body::Track::GetFinalX)
+    .def("GetX",&Body::Track::GetX)
+    .def("SetX",&Body::Track::SetX)
+    .def("ReverseTrack",&Body::Track::ReverseTrack)
+    ;
+  }
+
+  {
+    scope outer
+    = class_<Vacuum, bases<Body>, std::shared_ptr<Vacuum> >("Vacuum")
+    .def("density",&Vacuum::density)
+    .def("ye",&Vacuum::ye)
+    ;
+
+    class_<Vacuum::Track, std::shared_ptr<Vacuum::Track> >("Track", init<double>())
+    .def(init<double,double>())
+    .def("GetInitialX",&Vacuum::Track::GetInitialX)
+    .def("GetFinalX",&Vacuum::Track::GetFinalX)
+    .def("GetX",&Vacuum::Track::GetX)
+    .def("SetX",&Vacuum::Track::SetX)
+    .def("ReverseTrack",&Vacuum::Track::ReverseTrack)
+    ;
+
+    implicitly_convertible< std::shared_ptr<Vacuum>, std::shared_ptr<Body> >();
+    implicitly_convertible< std::shared_ptr<Vacuum::Track>, std::shared_ptr<Body::Track> >();
+  }
+
+  {
+    scope outer
+    = class_<ConstantDensity, bases<Body>, std::shared_ptr<ConstantDensity> >("ConstantDensity", init<double,double>())
+    .def(init<double,double,std::map<PDGCode,double>>())
+    .def("density",&ConstantDensity::density)
+    .def("ye",&ConstantDensity::ye)
+    ;
+
+    class_<ConstantDensity::Track, std::shared_ptr<ConstantDensity::Track> >("Track", init<double>())
+    .def(init<double,double>())
+    .def("GetInitialX",&ConstantDensity::Track::GetInitialX)
+    .def("GetFinalX",&ConstantDensity::Track::GetFinalX)
+    .def("GetX",&ConstantDensity::Track::GetX)
+    .def("SetX",&ConstantDensity::Track::SetX)
+    .def("ReverseTrack",&ConstantDensity::Track::ReverseTrack)
+    ;
+
+    implicitly_convertible< std::shared_ptr<ConstantDensity>, std::shared_ptr<Body> >();
+    implicitly_convertible< std::shared_ptr<ConstantDensity::Track>, std::shared_ptr<Body::Track> >();
+  }
+
+  {
+    scope outer
+    = class_<VariableDensity, bases<Body>, std::shared_ptr<VariableDensity> >("VariableDensity", init< std::vector<double>,std::vector<double>,std::vector<double> >())
+    .def(init<std::vector<double>,std::vector<double>,std::vector<double>,std::map<PDGCode,std::vector<double>>>())
+    ;
+
+    class_<VariableDensity::Track, std::shared_ptr<VariableDensity::Track> >("Track", init<double>())
+    .def(init<double,double>())
+    .def("GetInitialX",&VariableDensity::Track::GetInitialX)
+    .def("GetFinalX",&VariableDensity::Track::GetFinalX)
+    .def("GetX",&VariableDensity::Track::GetX)
+    .def("SetX",&VariableDensity::Track::SetX)
+    .def("ReverseTrack",&VariableDensity::Track::ReverseTrack)
+    ;
+
+    implicitly_convertible< std::shared_ptr<VariableDensity>, std::shared_ptr<Body> >();
+    implicitly_convertible< std::shared_ptr<VariableDensity::Track>, std::shared_ptr<Body::Track> >();
+  }
+
+  {
+    scope outer
+    = class_<Earth, bases<Body>, std::shared_ptr<Earth> >("Earth")
+    .def(init<std::string>())
+    .def(init<std::vector<double>,std::vector<double>,std::vector<double>>())
+    .def(init<std::vector<double>,std::vector<double>,std::vector<double>,std::vector<std::vector<double>>>())
+    ;
+
+    class_<Earth::Track, std::shared_ptr<Earth::Track> >("Track", init<double>())
+    .def(init<double,double,double>())
+    .def("GetInitialX",&Earth::Track::GetInitialX)
+    .def("GetFinalX",&Earth::Track::GetFinalX)
+    .def("GetX",&Earth::Track::GetX)
+    .def("SetX",&Earth::Track::SetX)
+    .def("ReverseTrack",&Earth::Track::ReverseTrack)
+    ;
+
+    implicitly_convertible< std::shared_ptr<Earth>, std::shared_ptr<Body> >();
+    implicitly_convertible< std::shared_ptr<Earth::Track>, std::shared_ptr<Body::Track> >();
+  }
+
+  {
+    scope outer
+    = class_<Sun, bases<Body>, std::shared_ptr<Sun> >("Sun")
+    .def(init<std::string>())
+    ;
+
+    class_<Sun::Track, std::shared_ptr<Sun::Track> >("Track", init<double>())
+    .def(init<double,double>())
+    .def("GetInitialX",&Sun::Track::GetInitialX)
+    .def("GetFinalX",&Sun::Track::GetFinalX)
+    .def("GetX",&Sun::Track::GetX)
+    .def("SetX",&Sun::Track::SetX)
+    .def("ReverseTrack",&Sun::Track::ReverseTrack)
+    ;
+
+    implicitly_convertible< std::shared_ptr<Sun>, std::shared_ptr<Body> >();
+    implicitly_convertible< std::shared_ptr<Sun::Track>, std::shared_ptr<Body::Track> >();
+  }
+
+  {
+    scope outer
+    = class_<SunASnu, bases<Body>, std::shared_ptr<SunASnu> >("SunASnu")
+    .def(init<std::string>())
+    ;
+
+    class_<SunASnu::Track, std::shared_ptr<SunASnu::Track> >("Track", init<double>())
+    .def(init<double,double>())
+    .def(init<double,double,double>())
+    .def("GetInitialX",&SunASnu::Track::GetInitialX)
+    .def("GetFinalX",&SunASnu::Track::GetFinalX)
+    .def("GetX",&SunASnu::Track::GetX)
+    .def("SetX",&SunASnu::Track::SetX)
+    .def("ReverseTrack",&SunASnu::Track::ReverseTrack)
+    ;
+
+    implicitly_convertible< std::shared_ptr<SunASnu>, std::shared_ptr<Body> >();
+    implicitly_convertible< std::shared_ptr<SunASnu::Track>, std::shared_ptr<Body::Track> >();
+  }
+
+  {
+    scope outer
+    = class_<EarthAtm, bases<Body>, boost::noncopyable, std::shared_ptr<EarthAtm> >("EarthAtm")
+    .def(init<std::string>())
+    .def(init<std::vector<double>,std::vector<double>,std::vector<double>>())
+    .def(init<std::vector<double>,std::vector<double>,std::vector<double>,std::vector<std::vector<double>>>())
+    .def("GetRadius",&EarthAtm::GetRadius)
+    .def("GetAtmosphereHeight",&EarthAtm::GetAtmosphereHeight)
+    .def("SetAtmosphereHeight",&EarthAtm::SetAtmosphereHeight)
+    .def("MakeTrack",&EarthAtm::MakeTrack)
+    .def("MakeTrackWithCosine",&EarthAtm::MakeTrackWithCosine)
+    ;
+
+    class_<EarthAtm::Track, std::shared_ptr<EarthAtm::Track> >("Track", init<EarthAtm::Track>())
+    .def(init<double,double,double>())
+    .def(init<double,double,double,double>())
+    .def("GetInitialX",&EarthAtm::Track::GetInitialX)
+    .def("GetFinalX",&EarthAtm::Track::GetFinalX)
+    .def("GetX",&EarthAtm::Track::GetX)
+    .def("SetX",&EarthAtm::Track::SetX)
+    .def("ReverseTrack",&EarthAtm::Track::ReverseTrack)
+    ;
+
+    implicitly_convertible< std::shared_ptr<EarthAtm>, std::shared_ptr<Body> >();
+    implicitly_convertible< std::shared_ptr<EarthAtm::Track>, std::shared_ptr<Body::Track> >();
+  }
+
+  // python cotainer to vector<double> convertion
+  using namespace scitbx::boost_python::container_conversions;
+  from_python_sequence< std::vector<double>, variable_capacity_policy >();
+  to_python_converter< std::vector<double, class std::allocator<double> >, VecToList<double> > ();
+  // register marray converters
+  to_python_converter< marray<double,1> , marray_to_numpyarray<1> >();
+  to_python_converter< marray<double,2> , marray_to_numpyarray<2> >();
+  to_python_converter< marray<double,3> , marray_to_numpyarray<3> >();
+  to_python_converter< marray<double,4> , marray_to_numpyarray<4> >();
+
+  marray_from_python<1>();
+  marray_from_python<2>();
+  marray_from_python<3>();
+  marray_from_python<4>();
+
+  // wrapers for Python:
+  boost::python::def("EvalFlavor", &EvalFlavorWrapperEnergy, 
+    (boost::python::arg("self"), boost::python::arg("flav"), boost::python::arg("E"), 
+     boost::python::arg("current"), boost::python::arg("x"), boost::python::arg("mask")),
+    "Wrapper around EvalFlavor that accepts Python lists for mask argument"
+  );
+  boost::python::def("EvalFlavor", &EvalFlavorWrapper, 
+    (boost::python::arg("self"), boost::python::arg("flav"),  
+     boost::python::arg("x"), boost::python::arg("mask")),
+    "Wrapper around EvalFlavor that accepts Python lists for mask argument"
+  );
+  boost::python::def("EvalFlavor", &EvalFlavorWrapperAtm, 
+    (boost::python::arg("self"), boost::python::arg("flav"), boost::python::arg("costh"), boost::python::arg("E"), 
+     boost::python::arg("current"), boost::python::arg("x"), boost::python::arg("mask")),
+    "Wrapper around EvalFlavor that accepts Python lists for mask argument"
+  );
+
+}

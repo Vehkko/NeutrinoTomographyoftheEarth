@@ -1,0 +1,382 @@
+#!/bin/sh
+
+# Determine the directory in which the user is running configure,
+# and the source directory where it lives
+WORKING_DIR=$( (command -v realpath > /dev/null && realpath $(pwd)) || pwd)
+cd -- $(dirname $0)
+SOURCE_DIR=$( (command -v realpath > /dev/null && realpath $(pwd)) || pwd)
+cd -- "${WORKING_DIR}"
+
+check_pkgconfig(){
+	if [ "$CHECKED_PKGCONFIG" ]; then return; fi
+	echo "Looking for pkg-config..."
+	which pkg-config 2>&1 > /dev/null
+	if [ "$?" -ne 0 ]; then
+		echo "Error: pkg-config not found; you will need to specify library locations manually" 1>&2
+		exit 1
+	fi
+	CHECKED_PKGCONFIG=1
+}
+
+find_package(){
+	PKG=$1
+	VAR_PREFIX=`echo $PKG | tr [:lower:] [:upper:]`
+	TMP_FOUND=`eval echo "$"${VAR_PREFIX}_FOUND`
+	if [ "$TMP_FOUND" ]; then return; fi
+	check_pkgconfig
+	echo "Looking for $PKG..."
+
+	pkg-config --exists $PKG
+	if [ "$?" -ne 0 ]; then
+		echo "Error: $PKG not installed or not registered with pkg-config" 1>&2
+		lowername=`echo $PKG | tr [A-Z] [a-z]`
+		echo "Please specify location using the --with-"$lowername"-incdir and --with-"$lowername"-libdir flags" 1>&2
+		exit 1
+	fi
+	if [ $# -ge 2 ]; then
+		MIN_VERSION=$2
+		pkg-config --atleast-version $MIN_VERSION $PKG
+		if [ "$?" -ne 0 ]; then
+			echo "Error: installed $PKG verson ("`pkg-config --modversion $PKG`") is too old; version >=$MIN_VERSION is required" 1>&2
+			exit 1
+		fi
+	fi
+	eval ${VAR_PREFIX}_FOUND=1
+	eval ${VAR_PREFIX}_CFLAGS=\"`pkg-config --cflags $PKG`\"
+	eval ${VAR_PREFIX}_LDFLAGS=\"`pkg-config --libs $PKG`\"
+}
+
+PREFIX=/usr/local
+INSTALL_LIBDIR=lib
+
+VERSION_NUM=100301
+VERSION_MAJOR=$(echo $VERSION_NUM | awk '{print int($1/100000)}')
+VERSION_MINOR=$(echo $VERSION_NUM | awk '{print int($1/100)%1000}')
+VERSION_PATCH=$(echo $VERSION_NUM | awk '{print $1%100}')
+VERSION="${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}"
+
+OS_NAME=`uname -s`
+
+GUESS_CC=gcc
+GUESS_CXX=g++
+GUESS_AR=ar
+GUESS_LD=ld
+if [ "$OS_NAME" = Darwin ]; then
+	GUESS_CC=clang
+	GUESS_CXX=clang++
+	GUESS_LD=clang++
+	DYN_SUFFIX=.dylib
+	DYN_SUFFIX_FULL_VERSION='.$(VERSION)${DYN_SUFFIX}'
+	DYN_SUFFIX_MAJOR_VERSION='.$(VERSION_MAJOR)${DYN_SUFFIX}'
+	DYN_OPT='-dynamiclib -compatibility_version $(COMPAT_VERSION) -current_version $(VERSION)'
+elif [ "$OS_NAME" = FreeBSD ]; then
+	DYN_SUFFIX=.so
+	DYN_SUFFIX_FULL_VERSION='${DYN_SUFFIX}.$(VERSION)'
+	DYN_SUFFIX_MAJOR_VERSION='${DYN_SUFFIX}.$(VERSION_MAJOR)'
+	DYN_OPT='-shared'
+else
+	DYN_SUFFIX=.so
+	DYN_SUFFIX_FULL_VERSION='${DYN_SUFFIX}.$(VERSION)'
+	DYN_SUFFIX_MAJOR_VERSION='${DYN_SUFFIX}.$(VERSION_MAJOR)'
+	DYN_OPT='-shared -Wl,-soname,$(shell basename $(DYN_PRODUCT))'
+fi
+
+CC=${CC-$GUESS_CC}
+CXX=${CXX-$GUESS_CXX}
+AR=${AR-$GUESS_AR}
+LD=${LD-$GUESS_LD}
+
+CXXFLAGS="$CXXFLAGS -std=c++11"
+
+HELP="Usage: ./config.sh [OPTION]... 
+
+Installation directories:
+  --prefix=PREFIX         install files in PREFIX
+                          [$PREFIX]
+
+By default, \`make install' will install all the files in
+\`$PREFIX/bin', \`$PREFIX/lib' etc.  You can specify
+an installation prefix other than \`$PREFIX' using \`--prefix',
+for instance \`--prefix=\$HOME'.
+
+Fine tuning of the installation directories:
+
+  --libdir=DIR            object code libraries [lib]
+
+The following options can be used to maunally specify the 
+locations of dependencies:
+  --with-gsl=DIR          use the copy of GSL in DIR
+                          assuming headers are in DIR/include
+                          and libraries in DIR/lib
+  --with-gsl-incdir=DIR   use the copy of gsl in DIR
+  --with-gsl-libdir=DIR   use the copy of gsl in DIR
+
+Some influential environment variables:
+CC          C compiler command
+CXX         C++ compiler command
+AR          Static linker command
+LD          Dynamic linker command
+CFLAGS      C compiler flags
+CXXFLAGS    C++ compiler flags
+LDFLAGS     Linker flags
+" #`
+
+for var in "$@"
+do
+	if [ "$var" = "--help" -o "$var" = "-h" ]; then
+		echo "$HELP"
+		exit 0
+	fi
+
+	TMP=`echo "$var" | sed -n 's/^--prefix=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then PREFIX="$TMP"; continue; fi
+
+	TMP=`echo "$var" | sed -n 's/^--libdir=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then INSTALL_LIBDIR="$TMP"; continue; fi
+
+	TMP=`echo "$var" | sed -n 's/^--with-gsl=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then
+		GSL_INCDIR="${TMP}/include";
+		GSL_LIBDIR="${TMP}/lib";
+	continue; fi
+
+	TMP=`echo "$var" | sed -n 's/^--with-gsl-incdir=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then GSL_INCDIR="$TMP"; continue; fi
+
+	TMP=`echo "$var" | sed -n 's/^--with-gsl-libdir=\(.*\)$/\1/p'`
+	if [ "$TMP" ]; then GSL_LIBDIR="$TMP"; continue; fi
+
+	echo "config.sh: Unknown or malformed option '$var'" 1>&2
+	exit 1
+done
+
+$CXX $CXXFLAGS resources/compiler_test.cpp -o lib/compiler_test.exe >/dev/null 2>&1
+RESULT=$?
+
+if [ "$RESULT" -ne 0 ];
+then
+	if $CXX --version | grep -q 'clang';
+	then #maybe libc++ is available and will make compilation succeed
+		CXXFLAGS="$CXXFLAGS -stdlib=libc++"
+		LDFLAGS="$LDFLAGS -stdlib=libc++"
+		$CXX $CXXFLAGS resources/compiler_test.cpp -o lib/compiler_test.exe >/dev/null 2>&1
+		RESULT=$?
+	fi
+fi
+
+if [ "$RESULT" -ne 0 ];
+then
+	rm -f lib/compiler_test.exe
+	echo "Your C++ compiler ($CXX) is not able to compile this library." >&2
+	echo "Please set the CXX environment variable to point to a compiler which supports C++11." >&2
+	echo "Version 4.8.1 or newer of gcc or version 3.3 or newer of clang are recommended." >&2
+	exit 1
+fi
+rm -f lib/compiler_test.exe
+
+if [ "$GSL_INCDIR" -a "$GSL_LIBDIR" ]; then
+	echo "Checking manually specified GSL..."
+	if [ -d "$GSL_INCDIR/gsl" \
+         -a -f "$GSL_INCDIR/gsl/gsl_version.h" \
+         -a -d "$GSL_LIBDIR" \
+         -a -f "$GSL_LIBDIR/libgsl.a" ]; then
+		GSL_FOUND=1
+		GSL_CFLAGS="-I$GSL_INCDIR"
+		GSL_LDFLAGS="-L$GSL_LIBDIR -lgsl -lgslcblas -lm"
+	else
+		echo "Warning: manually specifed GSL not found; will attempt auto detection"
+	fi
+fi
+
+find_package gsl 1.15
+
+CFLAGS=$CFLAGS
+
+# Recent GCC versions provide a note about the ABI for passing over-aligned objects
+# "The ABI for passing parameters with 32-byte alignment has changed in GCC 4.6"
+# This is irrelevant to us since it is not possible to compile this library with such
+# old gcc versions, and the note keeps frightening users. It needs to be turned off. 
+if $CXX --version | grep -q 'Free Software Foundation'; then
+	EXTERNAL_CFLAGS='-I${includedir} -Wno-abi'
+	CFLAGS="$CFLAGS -Wno-abi"
+fi
+
+if $CXX --version | grep -q 'Intel Corporation'; then
+	# Recent versions of ICC issue some warnings which are only about whether
+	# optimization hints are working as intended. It would be nice to give it
+	# hints in a form it likes, but right now we would prefer not to frighten
+	# users with it.
+	EXTERNAL_CFLAGS='-I${includedir} -wd2261,3058'
+	CFLAGS="$CFLAGS -wd2261,3058"
+fi
+
+if $CXX --version | grep -q 'Portland Group'; then
+	# PGI warns very aggressively about stylistic issues like newlines at the
+	# ends of files an unnecessary break statements. Neatening these things up
+	# is a low priority, so we ask it to just pipe down for now.
+	EXTERNAL_CFLAGS='-I${includedir} --diag_suppress1 --diag_suppress111'
+	CFLAGS="$CFLAGS --diag_suppress1 --diag_suppress111"
+	# PGI also gets agry if passed darwin-specific linking flags, so we strip
+	# them out
+	DYN_OPT=`echo "$DYN_OPT" | sed -e 's|-compatibility_version $(COMPAT_VERSION)||' -e 's|-current_version $(VERSION)||'`
+fi
+
+if [ ! -d ./lib/ ]; then
+    mkdir lib;
+fi
+
+echo "Generating config file..."
+echo "prefix=$PREFIX" > lib/squids.pc
+echo '
+libdir=${prefix}/'"$INSTALL_LIBDIR"'
+includedir=${prefix}/include
+
+Name: SQuIDS
+Description: Evolves quantum mechanical states
+URL: https://github.com/jsalvado/SQuIDS' >> lib/squids.pc
+echo "Version: $VERSION" >> lib/squids.pc
+echo 'Requires: gsl >= 1.15
+Libs: -L${libdir} -lSQuIDS' >> lib/squids.pc
+echo 'Cflags: -I${includedir}' "${EXTERNAL_CFLAGS}" >> lib/squids.pc
+
+echo "Generating version header..."
+sed -e "s|__SQUIDS_VERSION__|$VERSION_NUM|g" \
+    -e "s|__SQUIDS_VERSION_STR__|$VERSION|g" \
+    < resources/version.h.in > include/SQuIDS/version.h
+
+echo "Generating makefile..."
+
+echo "# Directories
+SQUIDS_DIR=${SOURCE_DIR}
+BUILD_DIR=${WORKING_DIR}
+
+LIBDIR:=lib
+INCDIR:=include
+SQINCDIR:=include/SQuIDS
+SRCDIR:=src
+PREFIX:=$PREFIX
+INSTALL_LIBDIR:=$INSTALL_LIBDIR
+
+# Version
+VERSION:=$VERSION
+VERSION_MAJOR:=$VERSION_MAJOR
+COMPAT_VERSION:=${VERSION_MAJOR}.${VERSION_MINOR}
+
+# Compiler
+CC:=$CC
+CXX:=$CXX
+AR:=$AR
+LD:=$LD
+
+GSL_CFLAGS=$GSL_CFLAGS
+GSL_LDFLAGS=$GSL_LDFLAGS
+
+CFLAGS:=$CFLAGS "'-O3 -fPIC -I$(INCDIR) $(GSL_CFLAGS)'"
+CXXFLAGS:=$CXXFLAGS
+LDFLAGS:=$LDFLAGS "'-Wl,-rpath -Wl,$(LIBDIR) -L$(LIBDIR) $(GSL_LDFLAGS)'"
+
+DYN_SUFFIX:=$DYN_SUFFIX
+DYN_SUFFIX_FULL_VERSION:=$DYN_SUFFIX_FULL_VERSION
+DYN_SUFFIX_MAJOR_VERSION:=$DYN_SUFFIX_MAJOR_VERSION
+DYN_OPT=$DYN_OPT
+"> settings.mk
+
+echo 'include settings.mk
+
+# Project files
+NAME:=SQuIDS
+STAT_PRODUCT:=lib$(NAME).a
+DYN_PRODUCT_FULL_VER:=lib$(NAME)$(DYN_SUFFIX_FULL_VERSION)
+DYN_PRODUCT_MAJ_VER:=lib$(NAME)$(DYN_SUFFIX_MAJOR_VERSION)
+DYN_PRODUCT:=lib$(NAME)$(DYN_SUFFIX)
+
+OBJECTS:= $(LIBDIR)/const.o $(LIBDIR)/SUNalg.o $(LIBDIR)/SQuIDS.o $(LIBDIR)/MatrixExp.o
+
+# Compilation rules
+all: $(LIBDIR)/$(STAT_PRODUCT) $(LIBDIR)/$(DYN_PRODUCT)
+
+$(LIBDIR)/$(DYN_PRODUCT) : $(OBJECTS)
+	@echo Linking $(DYN_PRODUCT)
+	@rm -f "$(LIBDIR)/$(DYN_PRODUCT)" "$(LIBDIR)/$(DYN_PRODUCT_MAJ_VER)"
+	@$(CXX) $(DYN_OPT) $(LDFLAGS) -o "$(LIBDIR)/$(DYN_PRODUCT_FULL_VER)" $(OBJECTS)
+	@[ $$(uname -s) != Darwin ] || install_name_tool -id "$(SQUIDS_DIR)/$(LIBDIR)/$(DYN_PRODUCT_MAJ_VER)" "$(LIBDIR)/$(DYN_PRODUCT_FULL_VER)"
+	@ln -s "$(DYN_PRODUCT_FULL_VER)" "$(LIBDIR)/$(DYN_PRODUCT_MAJ_VER)"
+	@ln -s "$(DYN_PRODUCT_FULL_VER)" "$(LIBDIR)/$(DYN_PRODUCT)"
+
+$(LIBDIR)/$(STAT_PRODUCT) : $(OBJECTS)
+	@echo Linking $(STAT_PRODUCT)
+	@$(AR) -rcs $(LIBDIR)/$(STAT_PRODUCT) $(OBJECTS)
+
+$(LIBDIR)/const.o: $(SRCDIR)/const.cpp $(SQINCDIR)/const.h Makefile
+	@echo Compiling const.cpp to const.o
+	@$(CXX) $(CXXFLAGS) -c $(CFLAGS) $(SRCDIR)/const.cpp -o $@
+$(LIBDIR)/SQuIDS.o: $(SRCDIR)/SQuIDS.cpp $(SQINCDIR)/SQuIDS.h $(SQINCDIR)/SUNalg.h $(SQINCDIR)/const.h Makefile
+	@echo Compiling SQuIDS.cpp to SQuIDS.o
+	@$(CXX) $(CXXFLAGS) -c $(CFLAGS) $(SRCDIR)/SQuIDS.cpp -o $@
+$(LIBDIR)/SUNalg.o: $(SRCDIR)/SUNalg.cpp $(SQINCDIR)/SUNalg.h $(SQINCDIR)/const.h Makefile
+	@echo Compiling SUNalg.cpp to SUNalg.o
+	@$(CXX) $(CXXFLAGS) -c $(CFLAGS) $(SRCDIR)/SUNalg.cpp -o $@
+$(LIBDIR)/MatrixExp.o: $(SRCDIR)/MatrixExp.cpp $(SQINCDIR)/SUNalg.h  Makefile
+	@echo Compiling MatrixExp.cpp to MatrixExp.o
+	@$(CXX) $(CXXFLAGS) -c $(CFLAGS) $(SRCDIR)/MatrixExp.cpp -o $@
+
+.PHONY: clean install uninstall doxygen docs test check
+clean:
+	@echo Erasing generated files
+	@rm -f $(LIBDIR)/*.o $(LIBDIR)/*.a $(LIBDIR)/*.so $(LIBDIR)/*.dylib
+
+doxygen:
+	@doxygen src/doxyfile
+docs:
+	@doxygen src/doxyfile
+
+test: $(LIBDIR)/$(DYN_PRODUCT) $(LIBDIR)/$(STAT_PRODUCT)
+	@cd test ; \
+	./run_tests
+check: $(LIBDIR)/$(DYN_PRODUCT) $(LIBDIR)/$(STAT_PRODUCT)
+	@cd test ; \
+	./run_tests
+
+install: $(LIBDIR)/$(DYN_PRODUCT) $(LIBDIR)/$(STAT_PRODUCT)
+	@echo Installing headers in $(PREFIX)/include/SQuIDS
+	@mkdir -p "$(PREFIX)/include/SQuIDS"
+	@cp "$(INCDIR)"/SQuIDS/*.h "$(PREFIX)/include/SQuIDS"
+	@mkdir -p "$(PREFIX)/include/SQuIDS/detail"
+	@cp "$(INCDIR)"/SQuIDS/detail/*.h "$(PREFIX)/include/SQuIDS/detail"
+	@mkdir -p "$(PREFIX)/include/SQuIDS/SU_inc"
+	@cp "$(INCDIR)"/SQuIDS/SU_inc/*.h "$(PREFIX)/include/SQuIDS/SU_inc"
+	@cp "$(INCDIR)"/SQuIDS/SU_inc/*.txt "$(PREFIX)/include/SQuIDS/SU_inc"
+	@echo Installing libraries in $(PREFIX)/$(INSTALL_LIBDIR)
+	@mkdir -p "$(PREFIX)/$(INSTALL_LIBDIR)"
+	@cp "$(LIBDIR)/$(STAT_PRODUCT)" "$(PREFIX)/$(INSTALL_LIBDIR)"
+	@cp "$(LIBDIR)/$(DYN_PRODUCT_FULL_VER)" "$(PREFIX)/$(INSTALL_LIBDIR)"
+	@[ $$(uname -s) != Darwin ] || install_name_tool -id "$(PREFIX)/$(INSTALL_LIBDIR)/$(DYN_PRODUCT_MAJ_VER)" "$(PREFIX)/$(INSTALL_LIBDIR)/$(DYN_PRODUCT_FULL_VER)"
+	@rm -f "$(PREFIX)/$(INSTALL_LIBDIR)/$(DYN_PRODUCT)" "$(PREFIX)/$(INSTALL_LIBDIR)/$(DYN_PRODUCT_MAJ_VER)"
+	@ln -s "$(DYN_PRODUCT_FULL_VER)" "$(PREFIX)/$(INSTALL_LIBDIR)/$(DYN_PRODUCT_MAJ_VER)"
+	@ln -s "$(DYN_PRODUCT_FULL_VER)" "$(PREFIX)/$(INSTALL_LIBDIR)/$(DYN_PRODUCT)"
+	@echo Installing config information in $(PREFIX)/lib/pkgconfig
+	@mkdir -p "$(PREFIX)/$(INSTALL_LIBDIR)/pkgconfig"
+	@cp "$(LIBDIR)/squids.pc" "$(PREFIX)/$(INSTALL_LIBDIR)/pkgconfig"
+	@./resources/check_install.sh squids "$(PREFIX)/$(INSTALL_LIBDIR)"
+
+uninstall:
+	@echo Removing headers from $(PREFIX)/include/SQuIDS
+	@rm -rf "$(PREFIX)/include/SQuIDS"
+	@echo Removing libraries from $(PREFIX)/$(INSTALL_LIBDIR)
+	@rm -f "$(PREFIX)/$(INSTALL_LIBDIR)/$(DYN_PRODUCT)"
+	@rm -f "$(PREFIX)/$(INSTALL_LIBDIR)/$(DYN_PRODUCT_MAJ_VER)"
+	@rm -f "$(PREFIX)/$(INSTALL_LIBDIR)/$(DYN_PRODUCT_FULL_VER)"
+	@rm -f "$(PREFIX)/$(INSTALL_LIBDIR)/$(STAT_PRODUCT)"
+	@echo Removing config information from $(PREFIX)/$(INSTALL_LIBDIR)/pkgconfig
+	@rm -f "$(PREFIX)/$(INSTALL_LIBDIR)/pkgconfig/squids.pc"
+' > Makefile
+
+echo "
+export CXX=\"${CXX}\"
+export CFLAGS=\"${CFLAGS} ${GSL_CFLAGS}\"
+export CXXFLAGS=\"${CXXFLAGS}\"
+export LDFLAGS=\"${LDFLAGS} ${GSL_LDFLAGS}\"
+" > test/env_vars.sh
+
+echo "Done."
+echo "To build, run 'make'"

@@ -1,0 +1,55 @@
+Inverting vector with dimension 2
+components are correctly set
+Assigning negated vector with dimension 2
+components are correctly set
+Move assigning negated vector with dimension 2
+components are correctly set
+7 entries allocated
+Constructing vector from negation of a proxy with dimension 2
+components are correctly set
+0 entries allocated
+
+Inverting vector with dimension 3
+components are correctly set
+Assigning negated vector with dimension 3
+components are correctly set
+Move assigning negated vector with dimension 3
+components are correctly set
+12 entries allocated
+Constructing vector from negation of a proxy with dimension 3
+components are correctly set
+0 entries allocated
+
+Inverting vector with dimension 4
+components are correctly set
+Assigning negated vector with dimension 4
+components are correctly set
+Move assigning negated vector with dimension 4
+components are correctly set
+19 entries allocated
+Constructing vector from negation of a proxy with dimension 4
+components are correctly set
+0 entries allocated
+
+Inverting vector with dimension 5
+components are correctly set
+Assigning negated vector with dimension 5
+components are correctly set
+Move assigning negated vector with dimension 5
+components are correctly set
+28 entries allocated
+Constructing vector from negation of a proxy with dimension 5
+components are correctly set
+0 entries allocated
+
+Inverting vector with dimension 6
+components are correctly set
+Assigning negated vector with dimension 6
+components are correctly set
+Move assigning negated vector with dimension 6
+components are correctly set
+39 entries allocated
+Constructing vector from negation of a proxy with dimension 6
+components are correctly set
+0 entries allocated
+
