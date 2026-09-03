@@ -26,6 +26,9 @@ local prefix = path.join(root, "third_party", "local")
 local include_dir = path.join(prefix, "include")
 local lib_dir = path.join(prefix, "lib")
 
+local nt_include = path.join(root, "include")
+local vndarray_include = path.join(nt_include, "VNdArray", "include")
+
 local mpi_root = os.getenv("I_MPI_ROOT")
 local mkl_root = os.getenv("MKLROOT")
 
@@ -54,6 +57,8 @@ end
 
 function apply_common()
     add_includedirs(include_dir)
+    add_includedirs(nt_include)
+    add_includedirs(vndarray_include)
 
     add_linkdirs(lib_dir)
 
@@ -175,3 +180,30 @@ add_links("multinest_mpi")
 add_defines("NT_TEST_MULTINEST_MPI")
 
 add_files("tests/env/test_multinest.cpp")
+
+-- ============================================================
+-- Neutrino tomography core
+-- ============================================================
+
+target("ntcore")
+set_kind("static")
+
+apply_native_stack()
+
+add_includedirs(path.join(root, "include"), vndarray_include, { public = true })
+
+add_files("src/flux.cpp")
+
+-- ============================================================
+-- Flux
+-- ============================================================
+
+target("test_flux")
+set_kind("binary")
+
+apply_native_stack()
+
+add_includedirs(path.join(root, "include"), vndarray_include)
+
+add_deps("ntcore")
+add_files("tests/core/test_flux.cpp")
