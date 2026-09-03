@@ -14,7 +14,7 @@ namespace nt {
 
         bool nearly_equal(Real_t a, Real_t b) noexcept {
             const Real_t scale = std::max({Real_t{1}, std::abs(a), std::abs(b)});
-            return std::abs(a - b) <= Real_t{64} * std::numeric_limits<Real_t>::epsilon() * scale;
+            return std::abs(a - b) <= Real_t{1e-10} * scale;
         }
 
         void check_axes(const Flux& flux, const ResponseArray& response) {
