@@ -1,9 +1,7 @@
-#include "VNdArray/ndarray.hpp"
-#include "nt/flux.hpp"
-#include <cstddef>
-#include <filesystem>
 #include <nt/earth.hpp>
+#include <nt/flux.hpp>
 #include <nt/types.hpp>
+#include <vndarray/ndarray.hpp>
 
 #include <SQuIDS/const.h>
 #include <gsl/gsl_odeiv2.h>
@@ -14,6 +12,8 @@
 #include <array>
 #include <cassert>
 #include <cmath>
+#include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
