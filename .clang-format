@@ -7,7 +7,7 @@ UseTab: Never
 DerivePointerAlignment: false
 PointerAlignment: Left
 
-ColumnLimit: 0
+ColumnLimit: 120
 
 NamespaceIndentation: All
 
@@ -15,4 +15,3 @@ AlignConsecutiveAssignments: true
 AlignConsecutiveDeclarations: true
 
 AlignArrayOfStructures: Left
-

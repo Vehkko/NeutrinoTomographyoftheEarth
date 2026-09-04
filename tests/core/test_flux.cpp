@@ -39,9 +39,8 @@ namespace {
     void require_close(Real_t actual, Real_t expected, const char* message) {
         const Real_t scale = std::max<Real_t>({1.0, std::abs(actual), std::abs(expected)});
         if (std::abs(actual - expected) > eps * scale) {
-            throw std::runtime_error(
-                std::string(message) + ": actual=" + std::to_string(actual) +
-                ", expected=" + std::to_string(expected));
+            throw std::runtime_error(std::string(message) + ": actual=" + std::to_string(actual) +
+                                     ", expected=" + std::to_string(expected));
         }
     }
 
@@ -56,26 +55,21 @@ namespace {
         auto antinumu = flux.antinumu();
 
         require(numu.extent(0) == 2 && numu.extent(1) == 3, "numu shape is wrong");
-        require(antinumu.extent(0) == 2 && antinumu.extent(1) == 3,
-                "antinumu shape is wrong");
+        require(antinumu.extent(0) == 2 && antinumu.extent(1) == 3, "antinumu shape is wrong");
 
         // Write through NDA view -> native marray must change immediately.
         numu(1, 2) = 42.0;
-        require_close(flux.native_state()[1][2][0][1], 42.0,
-                      "numu view does not alias native state");
+        require_close(flux.native_state()[1][2][0][1], 42.0, "numu view does not alias native state");
 
         antinumu(0, 1) = 17.0;
-        require_close(flux.native_state()[0][1][1][1], 17.0,
-                      "antinumu view does not alias native state");
+        require_close(flux.native_state()[0][1][1][1], 17.0, "antinumu view does not alias native state");
 
         // Write through native marray -> NDA view must see the same value.
         flux.native_state()[1][0][0][1] = 23.0;
-        require_close(numu(1, 0), 23.0,
-                      "native state does not alias numu view");
+        require_close(numu(1, 0), 23.0, "native state does not alias numu view");
 
         // Different components must not alias each other.
-        require_close(flux.native_state()[1][2][1][1], 0.0,
-                      "numu write corrupted antinumu component");
+        require_close(flux.native_state()[1][2][1][1], 0.0, "numu write corrupted antinumu component");
 
         std::cout << "[PASS] component views\n";
     }
@@ -89,44 +83,35 @@ namespace {
         const hid_t   space   = H5Screate_simple(1, dims, nullptr);
         require(space >= 0, "H5Screate_simple failed");
 
-        const hid_t dataset = H5Dcreate2(file, path, H5T_NATIVE_DOUBLE, space,
-                                         H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        const hid_t dataset = H5Dcreate2(file, path, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         require(dataset >= 0, "H5Dcreate2 failed");
 
-        require(H5Dwrite(dataset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL,
-                         H5P_DEFAULT, data) >= 0,
-                "H5Dwrite failed");
+        require(H5Dwrite(dataset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data) >= 0, "H5Dwrite failed");
 
         H5Dclose(dataset);
         H5Sclose(space);
     }
 
-    void write_dataset_2d(hid_t file, const char* path, const Real_t* data,
-                          hsize_t n0, hsize_t n1) {
+    void write_dataset_2d(hid_t file, const char* path, const Real_t* data, hsize_t n0, hsize_t n1) {
         const hsize_t dims[2] = {n0, n1};
         const hid_t   space   = H5Screate_simple(2, dims, nullptr);
         require(space >= 0, "H5Screate_simple failed");
 
-        const hid_t dataset = H5Dcreate2(file, path, H5T_NATIVE_DOUBLE, space,
-                                         H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        const hid_t dataset = H5Dcreate2(file, path, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         require(dataset >= 0, "H5Dcreate2 failed");
 
-        require(H5Dwrite(dataset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL,
-                         H5P_DEFAULT, data) >= 0,
-                "H5Dwrite failed");
+        require(H5Dwrite(dataset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data) >= 0, "H5Dwrite failed");
 
         H5Dclose(dataset);
         H5Sclose(space);
     }
 
     std::filesystem::path make_test_daemonflux_file() {
-        const auto path = std::filesystem::temp_directory_path() /
-                          "neutrino_tomography_test_flux.h5";
+        const auto path = std::filesystem::temp_directory_path() / "neutrino_tomography_test_flux.h5";
 
         std::filesystem::remove(path);
 
-        const hid_t file = H5Fcreate(path.string().c_str(), H5F_ACC_TRUNC,
-                                     H5P_DEFAULT, H5P_DEFAULT);
+        const hid_t file = H5Fcreate(path.string().c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
         require(file >= 0, "H5Fcreate failed");
 
         const hid_t axes = H5Gcreate2(file, "/axes", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
@@ -137,14 +122,11 @@ namespace {
         require(flux >= 0, "cannot create /flux");
         H5Gclose(flux);
 
-        const hid_t location =
-            H5Gcreate2(file, "/flux/Test", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        const hid_t location = H5Gcreate2(file, "/flux/Test", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         require(location >= 0, "cannot create location");
         H5Gclose(location);
 
-        const hid_t calibrated =
-            H5Gcreate2(file, "/flux/Test/calibrated",
-                       H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        const hid_t calibrated = H5Gcreate2(file, "/flux/Test/calibrated", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         require(calibrated >= 0, "cannot create calibrated group");
         H5Gclose(calibrated);
 
@@ -153,21 +135,11 @@ namespace {
 
         // Stored HDF5 layout is [coszenith, energy].
         const Real_t numu[] = {
-            1.0,
-            2.0,
-            3.0,
-            4.0,
-            5.0,
-            6.0,
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
         };
 
         const Real_t antinumu[] = {
-            11.0,
-            12.0,
-            13.0,
-            14.0,
-            15.0,
-            16.0,
+            11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
         };
 
         write_dataset_1d(file, "/axes/coszenith", coszenith, 2);
@@ -210,8 +182,7 @@ namespace {
         for (Index_t z = 0; z < 2; ++z) {
             for (Index_t e = 0; e < 3; ++e) {
                 require_close(numu(z, e), expected_numu[z][e], "wrong loaded numu");
-                require_close(antinumu(z, e), expected_antinumu[z][e],
-                              "wrong loaded antinumu");
+                require_close(antinumu(z, e), expected_antinumu[z][e], "wrong loaded antinumu");
             }
         }
 
@@ -219,14 +190,13 @@ namespace {
         // must remain zero after the HDF5 hyperslab reads.
         for (Index_t z = 0; z < 2; ++z) {
             for (Index_t e = 0; e < 3; ++e) {
-                require_close(flux.component(Particle::neutrino, Flavor::electron)(z, e),
-                              0.0, "nue should remain zero");
-                require_close(flux.component(Particle::neutrino, Flavor::tau)(z, e),
-                              0.0, "nutau should remain zero");
-                require_close(flux.component(Particle::antineutrino, Flavor::electron)(z, e),
-                              0.0, "antinue should remain zero");
-                require_close(flux.component(Particle::antineutrino, Flavor::tau)(z, e),
-                              0.0, "antinutau should remain zero");
+                require_close(flux.component(Particle::neutrino, Flavor::electron)(z, e), 0.0,
+                              "nue should remain zero");
+                require_close(flux.component(Particle::neutrino, Flavor::tau)(z, e), 0.0, "nutau should remain zero");
+                require_close(flux.component(Particle::antineutrino, Flavor::electron)(z, e), 0.0,
+                              "antinue should remain zero");
+                require_close(flux.component(Particle::antineutrino, Flavor::tau)(z, e), 0.0,
+                              "antinutau should remain zero");
             }
         }
 
@@ -247,9 +217,7 @@ namespace {
     // -----------------------------------------------------------------------------
 
     Real_t reference_flux(Particle particle, Flavor flavor, Real_t z, Real_t energy) {
-        const Real_t base =
-            1000.0 * static_cast<Index_t>(particle) +
-            100.0 * static_cast<Index_t>(flavor);
+        const Real_t base = 1000.0 * static_cast<Index_t>(particle) + 100.0 * static_cast<Index_t>(flavor);
 
         return base + 2.0 * z + 3.0 * energy + 0.25 * z * energy;
     }
@@ -273,8 +241,7 @@ namespace {
 
                 for (Index_t z = 0; z < 3; ++z)
                     for (Index_t e = 0; e < 3; ++e)
-                        component(z, e) =
-                            reference_flux(particle, flavor, source_z[z], source_e[e]);
+                        component(z, e) = reference_flux(particle, flavor, source_z[z], source_e[e]);
             }
         }
 
@@ -283,10 +250,8 @@ namespace {
         const std::array<Real_t, 3> target_z = {-1.2, -0.75, 0.2};
         const std::array<Real_t, 3> target_e = {50.0, 150.0, 500.0};
 
-        const auto z_view =
-            nda::make_view1d(static_cast<const Real_t*>(target_z.data()), target_z.size());
-        const auto e_view =
-            nda::make_view1d(static_cast<const Real_t*>(target_e.data()), target_e.size());
+        const auto z_view = nda::make_view1d(static_cast<const Real_t*>(target_z.data()), target_z.size());
+        const auto e_view = nda::make_view1d(static_cast<const Real_t*>(target_e.data()), target_e.size());
 
         auto result = nt::resample_flux(source, z_view, e_view);
 
@@ -298,10 +263,8 @@ namespace {
 
                 for (Index_t z = 0; z < target_z.size(); ++z) {
                     for (Index_t e = 0; e < target_e.size(); ++e) {
-                        require_close(
-                            component(z, e),
-                            reference_flux(particle, flavor, target_z[z], target_e[e]),
-                            "resampled flux is wrong");
+                        require_close(component(z, e), reference_flux(particle, flavor, target_z[z], target_e[e]),
+                                      "resampled flux is wrong");
                     }
                 }
             }

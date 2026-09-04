@@ -20,9 +20,7 @@ namespace nt {
         nda::Array<Real_t, 2> counts;
 
         EventDistribution(Index_t n_coszenith, Index_t n_reco)
-            : coszenith({n_coszenith}),
-              reco_energy_gev({n_reco}),
-              counts({n_coszenith, n_reco}) {}
+            : coszenith({n_coszenith}), reco_energy_gev({n_reco}), counts({n_coszenith, n_reco}) {}
     };
 
     // Convert propagated νμ + ν̄μ flux into reconstructed event counts:
@@ -42,7 +40,6 @@ namespace nt {
     // not inside this hot path.
     //
     // No intermediate resampled Flux or 3D response array is allocated.
-    [[nodiscard]] EventDistribution
-    predict_events(const Flux& flux, const ResponseArray& response);
+    [[nodiscard]] EventDistribution predict_events(const Flux& flux, const ResponseArray& response);
 
 } // namespace nt

@@ -17,8 +17,7 @@ int main(int argc, char** argv) {
 
     MPI_Get_processor_name(processor, &name_length);
 
-    std::cout << "[MPI] rank " << rank << " / " << size << " on "
-              << std::string(processor, name_length) << '\n';
+    std::cout << "[MPI] rank " << rank << " / " << size << " on " << std::string(processor, name_length) << '\n';
 
     MPI_Barrier(MPI_COMM_WORLD);
 

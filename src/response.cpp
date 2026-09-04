@@ -20,11 +20,9 @@ namespace nt {
         constexpr Index_t n_cz   = 34;
         constexpr Index_t n_reco = 20;
 
-        constexpr const char* response_filename =
-            "TRIDENT_response_array_20x34.csv";
+        constexpr const char* response_filename = "TRIDENT_response_array_20x34.csv";
 
-        constexpr const char* migration_filename =
-            "energy_response_20x20_v2.csv";
+        constexpr const char* migration_filename = "energy_response_20x20_v2.csv";
 
         std::string_view trim(std::string_view s) noexcept {
             while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r'))
@@ -34,12 +32,10 @@ namespace nt {
             return s;
         }
 
-        Real_t parse_real(std::string_view text, const std::filesystem::path& file,
-                          Index_t line, Index_t column) {
+        Real_t parse_real(std::string_view text, const std::filesystem::path& file, Index_t line, Index_t column) {
             text = trim(text);
             if (text.empty())
-                throw std::runtime_error("Empty CSV field in " + file.string() +
-                                         " at line " + std::to_string(line) +
+                throw std::runtime_error("Empty CSV field in " + file.string() + " at line " + std::to_string(line) +
                                          ", column " + std::to_string(column));
 
             Real_t      value{};
@@ -48,22 +44,17 @@ namespace nt {
             const auto [ptr, ec] = std::from_chars(begin, end, value, std::chars_format::general);
 
             if (ec != std::errc{} || ptr != end || !std::isfinite(value))
-                throw std::runtime_error("Invalid numeric field '" + std::string(text) +
-                                         "' in " + file.string() +
-                                         " at line " + std::to_string(line) +
-                                         ", column " + std::to_string(column));
+                throw std::runtime_error("Invalid numeric field '" + std::string(text) + "' in " + file.string() +
+                                         " at line " + std::to_string(line) + ", column " + std::to_string(column));
             return value;
         }
 
-        Real_t parse_prefixed_real(std::string_view text, std::string_view prefix,
-                                   const std::filesystem::path& file,
+        Real_t parse_prefixed_real(std::string_view text, std::string_view prefix, const std::filesystem::path& file,
                                    Index_t line, Index_t column) {
             text = trim(text);
             if (text.size() <= prefix.size() || text.substr(0, prefix.size()) != prefix)
-                throw std::runtime_error("Expected '" + std::string(prefix) +
-                                         "<number>' in " + file.string() +
-                                         " at line " + std::to_string(line) +
-                                         ", column " + std::to_string(column));
+                throw std::runtime_error("Expected '" + std::string(prefix) + "<number>' in " + file.string() +
+                                         " at line " + std::to_string(line) + ", column " + std::to_string(column));
 
             return parse_real(text.substr(prefix.size()), file, line, column);
         }
@@ -74,8 +65,7 @@ namespace nt {
         //     (column_index, field)
         //
         // for every field in the line.
-        template <typename F>
-        Index_t for_each_cell(std::string_view line, F&& f) {
+        template <typename F> Index_t for_each_cell(std::string_view line, F&& f) {
             Index_t     column = 0;
             std::size_t begin  = 0;
 
@@ -101,17 +91,14 @@ namespace nt {
             return false;
         }
 
-        void require_strictly_increasing(nda::View<const Real_t, 1> axis,
-                                         const char*                name) {
+        void require_strictly_increasing(nda::View<const Real_t, 1> axis, const char* name) {
             for (Index_t i = 1; i < axis.extent(0); ++i) {
                 if (!(axis(i) > axis(i - 1)))
-                    throw std::runtime_error(std::string(name) +
-                                             " must be strictly increasing");
+                    throw std::runtime_error(std::string(name) + " must be strictly increasing");
             }
         }
 
-        void read_detector_response(const std::filesystem::path& file,
-                                    ResponseArray&               out) {
+        void read_detector_response(const std::filesystem::path& file, ResponseArray& out) {
             std::ifstream in(file);
             if (!in)
                 throw std::runtime_error("Cannot open TRIDENT response file: " + file.string());
@@ -130,50 +117,42 @@ namespace nt {
                 if (col > n_cz)
                     return;
 
-                out.coszenith(col - 1) =
-                    parse_prefixed_real(cell, "cos_", file, 1, col + 1);
+                out.coszenith(col - 1) = parse_prefixed_real(cell, "cos_", file, 1, col + 1);
             });
 
             if (header_fields != n_cz + 1)
-                throw std::runtime_error("TRIDENT response header must contain 35 fields: " +
-                                         file.string());
+                throw std::runtime_error("TRIDENT response header must contain 35 fields: " + file.string());
 
             // Rows:
             //
             //     logE_<log10(E/GeV)>,r0,...,r33
             for (Index_t row = 0; row < n_true; ++row) {
                 if (!read_nonempty_line(in, line))
-                    throw std::runtime_error("TRIDENT response file has fewer than 20 data rows: " +
-                                             file.string());
+                    throw std::runtime_error("TRIDENT response file has fewer than 20 data rows: " + file.string());
 
                 const Index_t fields = for_each_cell(line, [&](Index_t col, std::string_view cell) {
                     if (col == 0) {
-                        const Real_t loge =
-                            parse_prefixed_real(cell, "logE_", file, row + 2, 1);
+                        const Real_t loge        = parse_prefixed_real(cell, "logE_", file, row + 2, 1);
                         out.true_energy_gev(row) = std::pow(Real_t{10}, loge);
                     } else if (col <= n_cz) {
                         const Real_t value = parse_real(cell, file, row + 2, col + 1);
                         if (value < 0)
-                            throw std::runtime_error("Negative detector response in " +
-                                                     file.string() +
-                                                     " at line " + std::to_string(row + 2));
+                            throw std::runtime_error("Negative detector response in " + file.string() + " at line " +
+                                                     std::to_string(row + 2));
                         out.detector_response(row, col - 1) = value;
                     }
                 });
 
                 if (fields != n_cz + 1)
-                    throw std::runtime_error("TRIDENT response row must contain 35 fields in " +
-                                             file.string() +
+                    throw std::runtime_error("TRIDENT response row must contain 35 fields in " + file.string() +
                                              " at line " + std::to_string(row + 2));
             }
 
             if (read_nonempty_line(in, line))
-                throw std::runtime_error("TRIDENT response file has more than 20 data rows: " +
-                                         file.string());
+                throw std::runtime_error("TRIDENT response file has more than 20 data rows: " + file.string());
         }
 
-        void read_energy_migration(const std::filesystem::path& file,
-                                   ResponseArray&               out) {
+        void read_energy_migration(const std::filesystem::path& file, ResponseArray& out) {
             std::ifstream in(file);
             if (!in)
                 throw std::runtime_error("Cannot open TRIDENT migration file: " + file.string());
@@ -196,13 +175,11 @@ namespace nt {
                 if (col > n_reco)
                     return;
 
-                out.reco_energy_gev(col - 1) =
-                    parse_real(cell, file, 1, col + 1);
+                out.reco_energy_gev(col - 1) = parse_real(cell, file, 1, col + 1);
             });
 
             if (header_fields != n_reco + 1)
-                throw std::runtime_error("TRIDENT migration header must contain 21 fields: " +
-                                         file.string());
+                throw std::runtime_error("TRIDENT migration header must contain 21 fields: " + file.string());
 
             // CSV storage convention:
             //
@@ -216,8 +193,7 @@ namespace nt {
             // Do not transpose the file while loading.
             for (Index_t row = 0; row < n_true; ++row) {
                 if (!read_nonempty_line(in, line))
-                    throw std::runtime_error("TRIDENT migration file has fewer than 20 data rows: " +
-                                             file.string());
+                    throw std::runtime_error("TRIDENT migration file has fewer than 20 data rows: " + file.string());
 
                 Real_t migration_true_energy = 0;
 
@@ -227,16 +203,14 @@ namespace nt {
                     } else if (col <= n_reco) {
                         const Real_t value = parse_real(cell, file, row + 2, col + 1);
                         if (value < 0)
-                            throw std::runtime_error("Negative migration probability in " +
-                                                     file.string() +
+                            throw std::runtime_error("Negative migration probability in " + file.string() +
                                                      " at line " + std::to_string(row + 2));
                         out.energy_migration(row, col - 1) = value;
                     }
                 });
 
                 if (fields != n_reco + 1)
-                    throw std::runtime_error("TRIDENT migration row must contain 21 fields in " +
-                                             file.string() +
+                    throw std::runtime_error("TRIDENT migration row must contain 21 fields in " + file.string() +
                                              " at line " + std::to_string(row + 2));
 
                 // The two collaboration files describe the same 20 true-energy
@@ -246,15 +220,13 @@ namespace nt {
                 const Real_t a = std::log10(out.true_energy_gev(row));
                 const Real_t b = std::log10(migration_true_energy);
                 if (!std::isfinite(b) || std::abs(a - b) > 1e-4)
-                    throw std::runtime_error(
-                        "True-energy grids disagree between TRIDENT response and "
-                        "migration files at row " +
-                        std::to_string(row));
+                    throw std::runtime_error("True-energy grids disagree between TRIDENT response and "
+                                             "migration files at row " +
+                                             std::to_string(row));
             }
 
             if (read_nonempty_line(in, line))
-                throw std::runtime_error("TRIDENT migration file has more than 20 data rows: " +
-                                         file.string());
+                throw std::runtime_error("TRIDENT migration file has more than 20 data rows: " + file.string());
         }
 
     } // namespace

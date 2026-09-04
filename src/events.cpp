@@ -21,22 +21,19 @@ namespace nt {
             const Index_t ntrue = response.true_energy_gev.extent(0);
 
             if (flux.n_coszenith() != ncz || flux.n_energy() != ntrue)
-                throw std::invalid_argument(
-                    "predict_events: Flux grid dimensions do not match TRIDENT response");
+                throw std::invalid_argument("predict_events: Flux grid dimensions do not match TRIDENT response");
 
             const auto flux_z = flux.coszenith();
             const auto flux_e = flux.energy_gev();
 
             for (Index_t z = 0; z < ncz; ++z) {
                 if (!nearly_equal(flux_z(z), response.coszenith(z)))
-                    throw std::invalid_argument(
-                        "predict_events: Flux coszenith grid does not match TRIDENT response");
+                    throw std::invalid_argument("predict_events: Flux coszenith grid does not match TRIDENT response");
             }
 
             for (Index_t e = 0; e < ntrue; ++e) {
                 if (!nearly_equal(flux_e(e), response.true_energy_gev(e)))
-                    throw std::invalid_argument(
-                        "predict_events: Flux energy grid does not match TRIDENT response");
+                    throw std::invalid_argument("predict_events: Flux energy grid does not match TRIDENT response");
             }
         }
 
@@ -45,15 +42,11 @@ namespace nt {
             const Index_t ncz   = response.coszenith.extent(0);
             const Index_t nreco = response.reco_energy_gev.extent(0);
 
-            if (response.detector_response.extent(0) != ntrue ||
-                response.detector_response.extent(1) != ncz)
-                throw std::invalid_argument(
-                    "predict_events: detector_response shape is inconsistent with its axes");
+            if (response.detector_response.extent(0) != ntrue || response.detector_response.extent(1) != ncz)
+                throw std::invalid_argument("predict_events: detector_response shape is inconsistent with its axes");
 
-            if (response.energy_migration.extent(0) != ntrue ||
-                response.energy_migration.extent(1) != nreco)
-                throw std::invalid_argument(
-                    "predict_events: energy_migration shape is inconsistent with its axes");
+            if (response.energy_migration.extent(0) != ntrue || response.energy_migration.extent(1) != nreco)
+                throw std::invalid_argument("predict_events: energy_migration shape is inconsistent with its axes");
         }
 
     } // namespace
@@ -101,11 +94,9 @@ namespace nt {
             const Real_t* anu_row = anu_data + z * anu_z_stride;
 
             for (Index_t t = 0; t < ntrue; ++t) {
-                const Real_t phi =
-                    nu_row[t * nu_e_stride] + anu_row[t * anu_e_stride];
+                const Real_t phi = nu_row[t * nu_e_stride] + anu_row[t * anu_e_stride];
 
-                const Real_t weighted_flux =
-                    phi * detector[t * ncz + z];
+                const Real_t weighted_flux = phi * detector[t * ncz + z];
 
                 const Real_t* migration_row = migration + t * nreco;
 

@@ -21,8 +21,7 @@ namespace nt {
         nda::Array<Real_t, 1> density_g_cm3;
         nda::Array<Real_t, 1> ye;
 
-        explicit EarthProfile(Index_t n)
-            : radius_fraction({n}), density_g_cm3({n}), ye({n}) {}
+        explicit EarthProfile(Index_t n) : radius_fraction({n}), density_g_cm3({n}), ye({n}) {}
     };
 
     // Piecewise-constant density Earth.
@@ -101,9 +100,7 @@ namespace nt {
         Real_t  h_max_km     = 500.0;
     };
 
-    [[nodiscard]] EarthProfile
-    load_prem(const std::filesystem::path& filename =
-                  "data/PREM/EARTH_MODEL_PREM.dat");
+    [[nodiscard]] EarthProfile load_prem(const std::filesystem::path& filename = "data/PREM/EARTH_MODEL_PREM.dat");
 
     // Physical model parameterization used by the analysis:
     //
@@ -118,63 +115,83 @@ namespace nt {
     // 5 layers:
     //     [0, 1221], [1221, 3480], [3480, 4811],
     //     [4811, 5700], [5700, 6371] km
-    [[nodiscard]] LayeredEarth
-    make_layered_constant_3(const EarthProfile&        prem,
-                            nda::View<const Real_t, 1> density_factor);
+    [[nodiscard]] LayeredEarth make_layered_constant_3(const EarthProfile&        prem,
+                                                       nda::View<const Real_t, 1> density_factor);
 
-    [[nodiscard]] LayeredEarth
-    make_layered_constant_5(const EarthProfile&        prem,
-                            nda::View<const Real_t, 1> density_factor);
+    [[nodiscard]] LayeredEarth make_layered_constant_5(const EarthProfile&        prem,
+                                                       nda::View<const Real_t, 1> density_factor);
 
-    [[nodiscard]] PremScaledEarth
-    make_prem_scaled_3(nda::View<const Real_t, 1> density_factor);
+    [[nodiscard]] PremScaledEarth make_prem_scaled_3(nda::View<const Real_t, 1> density_factor);
 
-    [[nodiscard]] PremScaledEarth
-    make_prem_scaled_5(nda::View<const Real_t, 1> density_factor);
+    [[nodiscard]] PremScaledEarth make_prem_scaled_5(nda::View<const Real_t, 1> density_factor);
 
-    [[nodiscard]] DensityPerturbation
-    make_relative_box_perturbation(Real_t center_radius_km,
-                                   Real_t width_km,
-                                   Real_t relative_change,
-                                   Real_t edge_width_km = 0.0);
+    [[nodiscard]] DensityPerturbation make_relative_box_perturbation(Real_t center_radius_km, Real_t width_km,
+                                                                     Real_t relative_change,
+                                                                     Real_t edge_width_km = 0.0);
 
-    [[nodiscard]] DensityPerturbation
-    make_absolute_box_perturbation(Real_t center_radius_km,
-                                   Real_t width_km,
-                                   Real_t density_change_g_cm3,
-                                   Real_t edge_width_km = 0.0);
+    [[nodiscard]] DensityPerturbation make_absolute_box_perturbation(Real_t center_radius_km, Real_t width_km,
+                                                                     Real_t density_change_g_cm3,
+                                                                     Real_t edge_width_km = 0.0);
 
-    [[nodiscard]] DensityPerturbation
-    make_relative_gaussian_perturbation(
-        Real_t center_radius_km, Real_t sigma_km, Real_t relative_peak,
-        Real_t cutoff_sigma = 0.0);
+    [[nodiscard]] DensityPerturbation make_relative_gaussian_perturbation(Real_t center_radius_km, Real_t sigma_km,
+                                                                          Real_t relative_peak,
+                                                                          Real_t cutoff_sigma = 0.0);
 
-    [[nodiscard]] DensityPerturbation
-    make_absolute_gaussian_perturbation(
-        Real_t center_radius_km, Real_t sigma_km,
-        Real_t density_peak_g_cm3, Real_t cutoff_sigma = 0.0);
+    [[nodiscard]] DensityPerturbation make_absolute_gaussian_perturbation(Real_t center_radius_km, Real_t sigma_km,
+                                                                          Real_t density_peak_g_cm3,
+                                                                          Real_t cutoff_sigma = 0.0);
+
+    // Spherically symmetric bulk properties over a radial shell:
+    //
+    //     inner_radius_km <= r <= outer_radius_km
+    //
+    // Mass is returned in kg. Moment of inertia is taken about any diameter
+    // through the Earth center and returned in kg m^2. Mean density is returned
+    // in g/cm^3.
+    //
+    // PREM-based quantities use the same piecewise-linear interpolation between
+    // tabulated PREM nodes as the layered-constant model construction.
+    //
+    // Plain PREM.
+    [[nodiscard]] Real_t mass_kg(const EarthProfile& prem, Real_t inner_radius_km, Real_t outer_radius_km);
+
+    [[nodiscard]] Real_t moment_of_inertia_kg_m2(const EarthProfile& prem, Real_t inner_radius_km,
+                                                 Real_t outer_radius_km);
+
+    [[nodiscard]] Real_t mean_density_g_cm3(const EarthProfile& prem, Real_t inner_radius_km, Real_t outer_radius_km);
+
+    // Layered constant-density Earth.
+    [[nodiscard]] Real_t mass_kg(const LayeredEarth& earth, Real_t inner_radius_km, Real_t outer_radius_km);
+
+    [[nodiscard]] Real_t moment_of_inertia_kg_m2(const LayeredEarth& earth, Real_t inner_radius_km,
+                                                 Real_t outer_radius_km);
+
+    [[nodiscard]] Real_t mean_density_g_cm3(const LayeredEarth& earth, Real_t inner_radius_km, Real_t outer_radius_km);
+
+    // Piecewise PREM density scaling.
+    [[nodiscard]] Real_t mass_kg(const EarthProfile& prem, const PremScaledEarth& earth, Real_t inner_radius_km,
+                                 Real_t outer_radius_km);
+
+    [[nodiscard]] Real_t moment_of_inertia_kg_m2(const EarthProfile& prem, const PremScaledEarth& earth,
+                                                 Real_t inner_radius_km, Real_t outer_radius_km);
+
+    [[nodiscard]] Real_t mean_density_g_cm3(const EarthProfile& prem, const PremScaledEarth& earth,
+                                            Real_t inner_radius_km, Real_t outer_radius_km);
 
     // Plain PREM.
-    [[nodiscard]] Flux
-    propagate_flux(const Flux& initial, const EarthProfile& prem,
-                   const PropagationOptions& options = {});
+    [[nodiscard]] Flux propagate_flux(const Flux& initial, const EarthProfile& prem,
+                                      const PropagationOptions& options = {});
 
     // Layered constant-density rho with PREM Ye(r).
-    [[nodiscard]] Flux
-    propagate_flux(const Flux& initial, const EarthProfile& prem,
-                   const LayeredEarth&       earth,
-                   const PropagationOptions& options = {});
+    [[nodiscard]] Flux propagate_flux(const Flux& initial, const EarthProfile& prem, const LayeredEarth& earth,
+                                      const PropagationOptions& options = {});
 
     // Piecewise PREM density scaling with PREM Ye(r).
-    [[nodiscard]] Flux
-    propagate_flux(const Flux& initial, const EarthProfile& prem,
-                   const PremScaledEarth&    earth,
-                   const PropagationOptions& options = {});
+    [[nodiscard]] Flux propagate_flux(const Flux& initial, const EarthProfile& prem, const PremScaledEarth& earth,
+                                      const PropagationOptions& options = {});
 
     // Local PREM perturbation with PREM Ye(r).
-    [[nodiscard]] Flux
-    propagate_flux(const Flux& initial, const EarthProfile& prem,
-                   const DensityPerturbation& perturbation,
-                   const PropagationOptions&  options = {});
+    [[nodiscard]] Flux propagate_flux(const Flux& initial, const EarthProfile& prem,
+                                      const DensityPerturbation& perturbation, const PropagationOptions& options = {});
 
 } // namespace nt

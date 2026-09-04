@@ -34,13 +34,11 @@ namespace nt {
         // marray access
         // -----------------------------------------------------------------------------
 
-        template <typename T, unsigned int Rank>
-        T* marray_data(nsq::marray<T, Rank>& a) noexcept {
+        template <typename T, unsigned int Rank> T* marray_data(nsq::marray<T, Rank>& a) noexcept {
             return a.empty() ? nullptr : std::addressof(*a.begin());
         }
 
-        template <typename T, unsigned int Rank>
-        const T* marray_data(const nsq::marray<T, Rank>& a) noexcept {
+        template <typename T, unsigned int Rank> const T* marray_data(const nsq::marray<T, Rank>& a) noexcept {
             return a.empty() ? nullptr : std::addressof(*a.begin());
         }
 
@@ -85,8 +83,7 @@ namespace nt {
             else if constexpr (std::is_same_v<Real_t, long double>)
                 return H5T_NATIVE_LDOUBLE;
             else {
-                static_assert(std::is_same_v<Real_t, float> ||
-                                  std::is_same_v<Real_t, double> ||
+                static_assert(std::is_same_v<Real_t, float> || std::is_same_v<Real_t, double> ||
                                   std::is_same_v<Real_t, long double>,
                               "Unsupported Real_t");
             }
@@ -99,8 +96,7 @@ namespace nt {
             return H5Handle{id, H5Dclose};
         }
 
-        template <std::size_t Rank>
-        std::array<hsize_t, Rank> dataset_shape(hid_t dataset, const std::string& path) {
+        template <std::size_t Rank> std::array<hsize_t, Rank> dataset_shape(hid_t dataset, const std::string& path) {
             const hid_t space_id = H5Dget_space(dataset);
             if (space_id < 0)
                 hdf5_error("cannot get dataspace", path);
@@ -133,22 +129,19 @@ namespace nt {
             if (shape[0] != static_cast<hsize_t>(dst.extent(0)))
                 hdf5_error("axis size does not match Flux", path);
 
-            if (H5Dread(dataset.get(), hdf5_real_type(), H5S_ALL, H5S_ALL,
-                        H5P_DEFAULT, dst.data()) < 0)
+            if (H5Dread(dataset.get(), hdf5_real_type(), H5S_ALL, H5S_ALL, H5P_DEFAULT, dst.data()) < 0)
                 hdf5_error("cannot read dataset", path);
         }
 
         // Read a compact HDF5 [coszenith, energy] dataset directly into one
         // [particle, flavor] slice of the final 4D state.
-        void read_flux_component(hid_t file, const std::string& path, Flux& flux,
-                                 Particle particle, Flavor flavor) {
+        void read_flux_component(hid_t file, const std::string& path, Flux& flux, Particle particle, Flavor flavor) {
             auto       dataset = open_dataset(file, path);
             const auto shape   = dataset_shape<2>(dataset.get(), path);
 
             const Index_t ncz = flux.n_coszenith();
             const Index_t ne  = flux.n_energy();
-            if (shape[0] != static_cast<hsize_t>(ncz) ||
-                shape[1] != static_cast<hsize_t>(ne))
+            if (shape[0] != static_cast<hsize_t>(ncz) || shape[1] != static_cast<hsize_t>(ne))
                 hdf5_error("flux shape does not match axes", path);
 
             const hid_t file_space_id = H5Dget_space(dataset.get());
@@ -162,16 +155,13 @@ namespace nt {
                 hdf5_error("cannot create memory dataspace", path);
             H5Handle memory_space{memory_space_id, H5Sclose};
 
-            const hsize_t start[4] = {
-                0, 0, static_cast<hsize_t>(particle), static_cast<hsize_t>(flavor)};
+            const hsize_t start[4] = {0, 0, static_cast<hsize_t>(particle), static_cast<hsize_t>(flavor)};
             const hsize_t count[4] = {ncz, ne, 1, 1};
 
-            if (H5Sselect_hyperslab(memory_space.get(), H5S_SELECT_SET,
-                                    start, nullptr, count, nullptr) < 0)
+            if (H5Sselect_hyperslab(memory_space.get(), H5S_SELECT_SET, start, nullptr, count, nullptr) < 0)
                 hdf5_error("cannot select memory hyperslab", path);
 
-            if (H5Dread(dataset.get(), hdf5_real_type(), memory_space.get(),
-                        file_space.get(), H5P_DEFAULT,
+            if (H5Dread(dataset.get(), hdf5_real_type(), memory_space.get(), file_space.get(), H5P_DEFAULT,
                         marray_data(flux.native_state())) < 0)
                 hdf5_error("cannot read flux dataset", path);
         }
@@ -199,8 +189,7 @@ namespace nt {
         // Both axes are increasing, so one forward pass is enough to determine all
         // interpolation intervals. Boundary points retain the legacy linear
         // extrapolation behavior.
-        std::vector<InterpPoint> make_interp_map(nda::View<const Real_t, 1> source,
-                                                 nda::View<const Real_t, 1> target) {
+        std::vector<InterpPoint> make_interp_map(nda::View<const Real_t, 1> source, nda::View<const Real_t, 1> target) {
             std::vector<InterpPoint> map(target.extent(0));
             const Index_t            n  = source.extent(0);
             Index_t                  hi = 1;
@@ -235,8 +224,7 @@ namespace nt {
         // contiguous in memory. Interpolate all six together so interval lookup,
         // address arithmetic and source loads are shared instead of repeating six
         // complete 2D passes.
-        void resample_state(const Flux& source, Flux& target,
-                            const std::vector<InterpPoint>& zmap,
+        void resample_state(const Flux& source, Flux& target, const std::vector<InterpPoint>& zmap,
                             const std::vector<InterpPoint>& emap) {
             const Real_t* src = marray_data(source.native_state());
             Real_t*       dst = marray_data(target.native_state());
@@ -269,8 +257,7 @@ namespace nt {
                     const Real_t c11 = z.w1 * e.w1;
 
                     for (Index_t c = 0; c < component_count; ++c)
-                        out[c] = c00 * p00[c] + c01 * p01[c] +
-                                 c10 * p10[c] + c11 * p11[c];
+                        out[c] = c00 * p00[c] + c01 * p01[c] + c10 * p10[c] + c11 * p11[c];
                 }
             }
         }
@@ -282,8 +269,7 @@ namespace nt {
     // =============================================================================
 
     Flux::Flux(Index_t n_coszenith, Index_t n_energy)
-        : coszenith_({n_coszenith}),
-          energy_gev_({n_energy}),
+        : coszenith_({n_coszenith}), energy_gev_({n_energy}),
           state_({n_coszenith, n_energy, particle_count, flavor_count}) {
         // marray's ordinary construction value-initializes double elements, so the
         // initial state is already zero. Do not perform a second full-memory clear.
@@ -315,8 +301,7 @@ namespace nt {
         const Index_t ne       = n_energy();
         const Index_t e_stride = component_count;
         const Index_t z_stride = ne * component_count;
-        const Index_t offset   = static_cast<Index_t>(particle) * flavor_count +
-                                 static_cast<Index_t>(flavor);
+        const Index_t offset   = static_cast<Index_t>(particle) * flavor_count + static_cast<Index_t>(flavor);
 
         Real_t* data = marray_data(state_);
         if (data)
@@ -331,8 +316,7 @@ namespace nt {
         const Index_t ne       = n_energy();
         const Index_t e_stride = component_count;
         const Index_t z_stride = ne * component_count;
-        const Index_t offset   = static_cast<Index_t>(particle) * flavor_count +
-                                 static_cast<Index_t>(flavor);
+        const Index_t offset   = static_cast<Index_t>(particle) * flavor_count + static_cast<Index_t>(flavor);
 
         const Real_t* data = marray_data(state_);
         if (data)
@@ -340,17 +324,11 @@ namespace nt {
         return nda::make_strided_view2d(data, n_coszenith(), ne, z_stride, e_stride);
     }
 
-    nda::View<Real_t, 2> Flux::numu() noexcept {
-        return component(Particle::neutrino, Flavor::muon);
-    }
+    nda::View<Real_t, 2> Flux::numu() noexcept { return component(Particle::neutrino, Flavor::muon); }
 
-    nda::View<const Real_t, 2> Flux::numu() const noexcept {
-        return component(Particle::neutrino, Flavor::muon);
-    }
+    nda::View<const Real_t, 2> Flux::numu() const noexcept { return component(Particle::neutrino, Flavor::muon); }
 
-    nda::View<Real_t, 2> Flux::antinumu() noexcept {
-        return component(Particle::antineutrino, Flavor::muon);
-    }
+    nda::View<Real_t, 2> Flux::antinumu() noexcept { return component(Particle::antineutrino, Flavor::muon); }
 
     nda::View<const Real_t, 2> Flux::antinumu() const noexcept {
         return component(Particle::antineutrino, Flavor::muon);
@@ -376,17 +354,14 @@ namespace nt {
         constexpr const char* cz_path = "/axes/coszenith";
         constexpr const char* en_path = "/axes/energy_GeV";
 
-        Flux flux(read_axis_size(file.get(), cz_path),
-                  read_axis_size(file.get(), en_path));
+        Flux flux(read_axis_size(file.get(), cz_path), read_axis_size(file.get(), en_path));
 
         read_axis(file.get(), cz_path, flux.coszenith());
         read_axis(file.get(), en_path, flux.energy_gev());
 
         const std::string base = "/flux/" + std::string(location) + "/calibrated/";
-        read_flux_component(file.get(), base + "numu", flux,
-                            Particle::neutrino, Flavor::muon);
-        read_flux_component(file.get(), base + "antinumu", flux,
-                            Particle::antineutrino, Flavor::muon);
+        read_flux_component(file.get(), base + "numu", flux, Particle::neutrino, Flavor::muon);
+        read_flux_component(file.get(), base + "antinumu", flux, Particle::antineutrino, Flavor::muon);
 
         return flux;
     }
@@ -395,8 +370,7 @@ namespace nt {
     // Resampling
     // =============================================================================
 
-    Flux resample_flux(const Flux&                source,
-                       nda::View<const Real_t, 1> coszenith,
+    Flux resample_flux(const Flux& source, nda::View<const Real_t, 1> coszenith,
                        nda::View<const Real_t, 1> energy_gev) {
         const auto src_z = source.coszenith();
         const auto src_e = source.energy_gev();

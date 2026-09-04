@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 
 PYTHON_ROOT="${PROJECT_ROOT}/runtime/python"
-PYTHON_PROJECT="${PROJECT_ROOT}/tools/daemonflux"
+PYTHON_PROJECT="${PROJECT_ROOT}/tools"
 
 PYTHON_VERSION="3.12"
 

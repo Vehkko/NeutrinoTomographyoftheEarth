@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <filesystem>
 #include <string_view>
 
@@ -97,8 +96,7 @@ namespace nt {
     // owning array is created.
     //
     // This function intentionally does not interpret legacy IceCube flux files.
-    [[nodiscard]] Flux load_daemonflux(const std::filesystem::path& filename,
-                                       std::string_view             location);
+    [[nodiscard]] Flux load_daemonflux(const std::filesystem::path& filename, std::string_view location);
 
     // Resample the complete six-component flux state onto a new grid.
     //
@@ -110,8 +108,7 @@ namespace nt {
     // Source and target axes must be strictly increasing. Interpolation intervals
     // and weights are precomputed once; all six contiguous particle/flavor values
     // at each grid point are then processed together.
-    [[nodiscard]] Flux resample_flux(const Flux&                source,
-                                     nda::View<const Real_t, 1> coszenith,
+    [[nodiscard]] Flux resample_flux(const Flux& source, nda::View<const Real_t, 1> coszenith,
                                      nda::View<const Real_t, 1> energy_gev);
 
 } // namespace nt

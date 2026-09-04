@@ -42,8 +42,7 @@ void test_gsl() {
     double result = 0.0;
     double error  = 0.0;
 
-    const int status = gsl_integration_qags(&F, 0.0, 1.0, 0.0, 1e-12, 1000,
-                                            workspace, &result, &error);
+    const int status = gsl_integration_qags(&F, 0.0, 1.0, 0.0, 1e-12, 1000, workspace, &result, &error);
 
     gsl_integration_workspace_free(workspace);
 
@@ -82,8 +81,7 @@ void test_hdf5() {
         plist.setChunk(1, chunk);
         plist.setDeflate(6);
 
-        H5::DataSet dataset =
-            file.createDataSet("values", H5::PredType::NATIVE_DOUBLE, space, plist);
+        H5::DataSet dataset = file.createDataSet("values", H5::PredType::NATIVE_DOUBLE, space, plist);
 
         const double input[4] = {1.0, 2.0, 3.0, 4.0};
 
@@ -128,8 +126,7 @@ void test_nusquids() {
     energy[1] = 1000.0;
     energy[2] = 10000.0;
 
-    nusquids::nuSQUIDSAtm<> nus(cosz, energy * units.GeV, 3, nusquids::both,
-                                false);
+    nusquids::nuSQUIDSAtm<> nus(cosz, energy * units.GeV, 3, nusquids::both, false);
 
     auto earth = std::make_shared<nusquids::EarthAtm>();
     nus.Set_EarthModel(earth);

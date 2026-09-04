@@ -36,28 +36,19 @@ namespace {
     void require_close(Real_t actual, Real_t expected, const char* message) {
         const Real_t scale = std::max({Real_t{1}, std::abs(actual), std::abs(expected)});
         if (std::abs(actual - expected) > eps * scale) {
-            throw std::runtime_error(
-                std::string(message) + ": actual=" + std::to_string(actual) +
-                ", expected=" + std::to_string(expected));
+            throw std::runtime_error(std::string(message) + ": actual=" + std::to_string(actual) +
+                                     ", expected=" + std::to_string(expected));
         }
     }
 
-    Real_t true_loge(Index_t t) {
-        return Real_t{3.05} + Real_t{0.1} * static_cast<Real_t>(t);
-    }
+    Real_t true_loge(Index_t t) { return Real_t{3.05} + Real_t{0.1} * static_cast<Real_t>(t); }
 
-    Real_t true_energy(Index_t t) {
-        return std::pow(Real_t{10}, true_loge(t));
-    }
+    Real_t true_energy(Index_t t) { return std::pow(Real_t{10}, true_loge(t)); }
 
-    Real_t coszenith(Index_t z) {
-        return Real_t{-0.99} + Real_t{0.02} * static_cast<Real_t>(z);
-    }
+    Real_t coszenith(Index_t z) { return Real_t{-0.99} + Real_t{0.02} * static_cast<Real_t>(z); }
 
     Real_t detector_value(Index_t t, Index_t z) {
-        return Real_t{1} +
-               Real_t{0.1} * static_cast<Real_t>(t) +
-               Real_t{0.01} * static_cast<Real_t>(z);
+        return Real_t{1} + Real_t{0.1} * static_cast<Real_t>(t) + Real_t{0.01} * static_cast<Real_t>(z);
     }
 
     // -------------------------------------------------------------------------
@@ -65,9 +56,7 @@ namespace {
     // -------------------------------------------------------------------------
 
     std::filesystem::path make_test_response_files() {
-        const auto directory =
-            std::filesystem::temp_directory_path() /
-            "neutrino_tomography_test_trident";
+        const auto directory = std::filesystem::temp_directory_path() / "neutrino_tomography_test_trident";
 
         std::filesystem::remove_all(directory);
         std::filesystem::create_directories(directory);
@@ -130,46 +119,35 @@ namespace {
     // -------------------------------------------------------------------------
 
     void test_response_loader(const ResponseArray& response) {
-        require(response.true_energy_gev.extent(0) == n_true,
-                "wrong true-energy dimension");
-        require(response.coszenith.extent(0) == n_cz,
-                "wrong coszenith dimension");
-        require(response.reco_energy_gev.extent(0) == n_reco,
-                "wrong reconstructed-energy dimension");
+        require(response.true_energy_gev.extent(0) == n_true, "wrong true-energy dimension");
+        require(response.coszenith.extent(0) == n_cz, "wrong coszenith dimension");
+        require(response.reco_energy_gev.extent(0) == n_reco, "wrong reconstructed-energy dimension");
 
-        require(response.detector_response.extent(0) == n_true &&
-                    response.detector_response.extent(1) == n_cz,
+        require(response.detector_response.extent(0) == n_true && response.detector_response.extent(1) == n_cz,
                 "wrong detector response shape");
 
-        require(response.energy_migration.extent(0) == n_true &&
-                    response.energy_migration.extent(1) == n_reco,
+        require(response.energy_migration.extent(0) == n_true && response.energy_migration.extent(1) == n_reco,
                 "wrong energy migration shape");
 
         for (Index_t t = 0; t < n_true; ++t)
-            require_close(response.true_energy_gev(t), true_energy(t),
-                          "wrong true-energy axis");
+            require_close(response.true_energy_gev(t), true_energy(t), "wrong true-energy axis");
 
         for (Index_t z = 0; z < n_cz; ++z)
-            require_close(response.coszenith(z), coszenith(z),
-                          "wrong coszenith axis");
+            require_close(response.coszenith(z), coszenith(z), "wrong coszenith axis");
 
         for (Index_t r = 0; r < n_reco; ++r)
-            require_close(response.reco_energy_gev(r), true_energy(r),
-                          "wrong reconstructed-energy axis");
+            require_close(response.reco_energy_gev(r), true_energy(r), "wrong reconstructed-energy axis");
 
         // Selected asymmetric positions make a transpose hard to hide.
-        require_close(response.detector_response(7, 11),
-                      detector_value(7, 11),
+        require_close(response.detector_response(7, 11), detector_value(7, 11),
                       "detector response orientation is wrong");
 
-        require_close(response.detector_response(11, 7),
-                      detector_value(11, 7),
+        require_close(response.detector_response(11, 7), detector_value(11, 7),
                       "detector response orientation is wrong");
 
         for (Index_t t = 0; t < n_true; ++t) {
             for (Index_t r = 0; r < n_reco; ++r) {
-                require_close(response.energy_migration(t, r),
-                              t == r ? Real_t{1} : Real_t{0},
+                require_close(response.energy_migration(t, r), t == r ? Real_t{1} : Real_t{0},
                               "energy migration orientation is wrong");
             }
         }
@@ -182,15 +160,11 @@ namespace {
     // -------------------------------------------------------------------------
 
     Real_t numu_value(Index_t z, Index_t t) {
-        return Real_t{10} +
-               Real_t{0.2} * static_cast<Real_t>(z) +
-               Real_t{1.5} * static_cast<Real_t>(t);
+        return Real_t{10} + Real_t{0.2} * static_cast<Real_t>(z) + Real_t{1.5} * static_cast<Real_t>(t);
     }
 
     Real_t antinumu_value(Index_t z, Index_t t) {
-        return Real_t{2} +
-               Real_t{0.03} * static_cast<Real_t>(z) +
-               Real_t{0.4} * static_cast<Real_t>(t);
+        return Real_t{2} + Real_t{0.03} * static_cast<Real_t>(z) + Real_t{0.4} * static_cast<Real_t>(t);
     }
 
     void test_events(const ResponseArray& response) {
@@ -214,13 +188,10 @@ namespace {
 
         const EventDistribution events = nt::predict_events(flux, response);
 
-        require(events.counts.extent(0) == n_cz &&
-                    events.counts.extent(1) == n_reco,
-                "wrong event-array shape");
+        require(events.counts.extent(0) == n_cz && events.counts.extent(1) == n_reco, "wrong event-array shape");
 
         for (Index_t z = 0; z < n_cz; ++z)
-            require_close(events.coszenith(z), response.coszenith(z),
-                          "wrong event coszenith axis");
+            require_close(events.coszenith(z), response.coszenith(z), "wrong event coszenith axis");
 
         for (Index_t r = 0; r < n_reco; ++r)
             require_close(events.reco_energy_gev(r), response.reco_energy_gev(r),
@@ -232,12 +203,9 @@ namespace {
         // N[z,r] = (numu[z,r] + antinumu[z,r]) * R[r,z].
         for (Index_t z = 0; z < n_cz; ++z) {
             for (Index_t r = 0; r < n_reco; ++r) {
-                const Real_t expected =
-                    (numu_value(z, r) + antinumu_value(z, r)) *
-                    detector_value(r, z);
+                const Real_t expected = (numu_value(z, r) + antinumu_value(z, r)) * detector_value(r, z);
 
-                require_close(events.counts(z, r), expected,
-                              "predicted event count is wrong");
+                require_close(events.counts(z, r), expected, "predicted event count is wrong");
             }
         }
 
@@ -272,26 +240,20 @@ namespace {
     // -------------------------------------------------------------------------
 
     void test_real_trident_files() {
-        const std::filesystem::path directory = "data/trident";
-        const auto                  response_file =
-            directory / "TRIDENT_response_array_20x34.csv";
-        const auto migration_file =
-            directory / "energy_response_20x20_v2.csv";
+        const std::filesystem::path directory      = "data/trident";
+        const auto                  response_file  = directory / "TRIDENT_response_array_20x34.csv";
+        const auto                  migration_file = directory / "energy_response_20x20_v2.csv";
 
-        if (!std::filesystem::is_regular_file(response_file) ||
-            !std::filesystem::is_regular_file(migration_file)) {
+        if (!std::filesystem::is_regular_file(response_file) || !std::filesystem::is_regular_file(migration_file)) {
             std::cout << "[SKIP] local internal TRIDENT files not available\n";
             return;
         }
 
         const auto response = nt::load_trident_response(directory);
 
-        require(response.true_energy_gev.extent(0) == n_true,
-                "real TRIDENT true-energy dimension is wrong");
-        require(response.coszenith.extent(0) == n_cz,
-                "real TRIDENT coszenith dimension is wrong");
-        require(response.reco_energy_gev.extent(0) == n_reco,
-                "real TRIDENT reco-energy dimension is wrong");
+        require(response.true_energy_gev.extent(0) == n_true, "real TRIDENT true-energy dimension is wrong");
+        require(response.coszenith.extent(0) == n_cz, "real TRIDENT coszenith dimension is wrong");
+        require(response.reco_energy_gev.extent(0) == n_reco, "real TRIDENT reco-energy dimension is wrong");
 
         Real_t min_row_sum = std::numeric_limits<Real_t>::infinity();
         Real_t max_row_sum = Real_t{0};
@@ -301,13 +263,11 @@ namespace {
 
             for (Index_t r = 0; r < n_reco; ++r) {
                 const Real_t value = response.energy_migration(t, r);
-                require(std::isfinite(value) && value >= 0,
-                        "real TRIDENT migration contains invalid values");
+                require(std::isfinite(value) && value >= 0, "real TRIDENT migration contains invalid values");
                 row_sum += value;
             }
 
-            require(std::isfinite(row_sum) && row_sum > 0,
-                    "real TRIDENT migration contains an empty row");
+            require(std::isfinite(row_sum) && row_sum > 0, "real TRIDENT migration contains an empty row");
 
             min_row_sum = std::min(min_row_sum, row_sum);
             max_row_sum = std::max(max_row_sum, row_sum);
@@ -316,14 +276,12 @@ namespace {
         for (Index_t t = 0; t < n_true; ++t) {
             for (Index_t z = 0; z < n_cz; ++z) {
                 const Real_t value = response.detector_response(t, z);
-                require(std::isfinite(value) && value >= 0,
-                        "real TRIDENT detector response contains invalid values");
+                require(std::isfinite(value) && value >= 0, "real TRIDENT detector response contains invalid values");
             }
         }
 
         std::cout << "[PASS] local internal TRIDENT files\n";
-        std::cout << "[INFO] migration row-sum range = ["
-                  << min_row_sum << ", " << max_row_sum << "]\n";
+        std::cout << "[INFO] migration row-sum range = [" << min_row_sum << ", " << max_row_sum << "]\n";
     }
 
 } // namespace

@@ -32,11 +32,8 @@ namespace nt {
         nda::Array<Real_t, 2> energy_migration;  // [true_energy, reco_energy]
 
         ResponseArray(Index_t n_true, Index_t n_coszenith, Index_t n_reco)
-            : true_energy_gev({n_true}),
-              coszenith({n_coszenith}),
-              reco_energy_gev({n_reco}),
-              detector_response({n_true, n_coszenith}),
-              energy_migration({n_true, n_reco}) {}
+            : true_energy_gev({n_true}), coszenith({n_coszenith}), reco_energy_gev({n_reco}),
+              detector_response({n_true, n_coszenith}), energy_migration({n_true, n_reco}) {}
     };
 
     // Read the final TRIDENT response files:
@@ -56,7 +53,6 @@ namespace nt {
     //
     // Values are parsed directly into the final NDA arrays. No vector<vector>,
     // stringstream table, matrix transpose, or intermediate numeric array is used.
-    [[nodiscard]] ResponseArray
-    load_trident_response(const std::filesystem::path& directory = "data/trident");
+    [[nodiscard]] ResponseArray load_trident_response(const std::filesystem::path& directory = "data/trident");
 
 } // namespace nt
