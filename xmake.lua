@@ -247,3 +247,17 @@ add_includedirs(nt_include, vndarray_include)
 
 add_deps("ntcore")
 add_files("cases/earth_models/main.cpp")
+
+-- ============================================================
+-- TRIDENT event distribution
+-- ============================================================
+
+target("case_trident_events")
+set_kind("binary")
+
+apply_native_stack()
+
+add_includedirs(nt_include, vndarray_include)
+
+add_deps("ntcore")
+add_files("cases/trident_events/main.cpp")
