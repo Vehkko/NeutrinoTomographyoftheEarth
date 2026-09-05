@@ -233,3 +233,17 @@ add_includedirs(nt_include, vndarray_include)
 
 add_deps("ntcore")
 add_files("tests/core/test_earth.cpp")
+
+-- ============================================================
+-- Earth model profiles
+-- ============================================================
+
+target("case_earth_models")
+set_kind("binary")
+
+apply_native_stack()
+
+add_includedirs(nt_include, vndarray_include)
+
+add_deps("ntcore")
+add_files("cases/earth_models/main.cpp")

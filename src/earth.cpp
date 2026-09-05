@@ -137,8 +137,8 @@ namespace nt {
 
         void validate_radius_range(Real_t inner_radius_km, Real_t outer_radius_km) {
             if (!(inner_radius_km >= 0.0 && inner_radius_km < outer_radius_km && outer_radius_km <= earth_radius_km)) {
-                throw std::invalid_argument("Earth radial range must satisfy "
-                                            "0 <= inner_radius_km < outer_radius_km <= 6371");
+                throw std::invalid_argument(
+                    "Earth radial range must satisfy 0 <= inner_radius_km < outer_radius_km <= 6371");
             }
         }
 
@@ -219,6 +219,12 @@ namespace nt {
             if (radius_km < outer_radius[3])
                 return 3;
             return 4;
+        }
+
+        void validate_radius(Real_t radius_km) {
+            if (!(radius_km >= 0.0 && radius_km <= earth_radius_km)) {
+                throw std::invalid_argument("Earth radius must satisfy 0 <= radius_km <= 6371");
+            }
         }
 
         // Common PREM-backed EarthAtm implementation used only inside the
@@ -511,6 +517,59 @@ namespace nt {
         p.amplitude             = density_peak_g_cm3;
         p.gaussian_cutoff_sigma = cutoff_sigma;
         return p;
+    }
+
+    Real_t density_g_cm3(const EarthProfile& prem, Real_t radius_km) {
+        validate_radius(radius_km);
+
+        const Real_t x = radius_km / earth_radius_km;
+
+        const Index_t n = prem.radius_fraction.extent(0);
+
+        if (x <= prem.radius_fraction(0))
+            return prem.density_g_cm3(0);
+
+        if (x >= prem.radius_fraction(n - 1))
+            return prem.density_g_cm3(n - 1);
+
+        for (Index_t i = 0; i + 1 < n; ++i) {
+            const Real_t x0 = prem.radius_fraction(i);
+
+            const Real_t x1 = prem.radius_fraction(i + 1);
+
+            if (x > x1)
+                continue;
+
+            const Real_t rho0 = prem.density_g_cm3(i);
+
+            const Real_t rho1 = prem.density_g_cm3(i + 1);
+
+            const Real_t t = (x - x0) / (x1 - x0);
+
+            return rho0 + t * (rho1 - rho0);
+        }
+
+        return prem.density_g_cm3(n - 1);
+    }
+
+    Real_t density_g_cm3(const LayeredEarth& earth, Real_t radius_km) {
+        validate_radius(radius_km);
+
+        assert(earth.layers == 3 || earth.layers == 5);
+
+        const Index_t i = layer_index(earth.layers, earth.outer_radius_km, radius_km);
+
+        return earth.density_g_cm3[i];
+    }
+
+    Real_t density_g_cm3(const EarthProfile& prem, const PremScaledEarth& earth, Real_t radius_km) {
+        validate_radius(radius_km);
+
+        assert(earth.layers == 3 || earth.layers == 5);
+
+        const Index_t i = layer_index(earth.layers, earth.outer_radius_km, radius_km);
+
+        return density_g_cm3(prem, radius_km) * earth.density_factor[i];
     }
 
     Real_t mass_kg(const EarthProfile& prem, Real_t inner_radius_km, Real_t outer_radius_km) {

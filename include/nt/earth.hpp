@@ -141,6 +141,25 @@ namespace nt {
                                                                           Real_t density_peak_g_cm3,
                                                                           Real_t cutoff_sigma = 0.0);
 
+    // Density of a project-side Earth model at a given radius.
+    //
+    // PREM-based models use piecewise-linear interpolation between the
+    // tabulated PREM nodes, matching the convention used by the bulk-property
+    // calculations and layered-constant model construction.
+    //
+    // radius_km must satisfy:
+    //
+    //     0 <= radius_km <= 6371
+    //
+    // Plain PREM.
+    [[nodiscard]] Real_t density_g_cm3(const EarthProfile& prem, Real_t radius_km);
+
+    // Layered constant-density Earth.
+    [[nodiscard]] Real_t density_g_cm3(const LayeredEarth& earth, Real_t radius_km);
+
+    // Piecewise PREM density scaling.
+    [[nodiscard]] Real_t density_g_cm3(const EarthProfile& prem, const PremScaledEarth& earth, Real_t radius_km);
+
     // Spherically symmetric bulk properties over a radial shell:
     //
     //     inner_radius_km <= r <= outer_radius_km
