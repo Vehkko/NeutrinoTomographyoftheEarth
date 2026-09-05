@@ -62,9 +62,11 @@ namespace nt {
         EventDistribution events(ncz, nreco);
 
         // The output owns its axes. These are tiny necessary copies:
-        // 34 coszenith values and 20 reconstructed-energy values for TRIDENT.
+        // 34 coszenith centers + 35 edges and 20 reconstructed-energy centers + 21 edges for TRIDENT.
         std::copy_n(response.coszenith.data(), ncz, events.coszenith.data());
         std::copy_n(response.reco_energy_gev.data(), nreco, events.reco_energy_gev.data());
+        std::copy_n(response.coszenith_edges.data(), ncz + 1, events.coszenith_edges.data());
+        std::copy_n(response.reco_energy_edges_gev.data(), nreco + 1, events.reco_energy_edges_gev.data());
 
         const auto numu     = flux.numu();
         const auto antinumu = flux.antinumu();

@@ -17,10 +17,13 @@ namespace nt {
     struct EventDistribution {
         nda::Array<Real_t, 1> coszenith;
         nda::Array<Real_t, 1> reco_energy_gev;
+        nda::Array<Real_t, 1> coszenith_edges;
+        nda::Array<Real_t, 1> reco_energy_edges_gev;
         nda::Array<Real_t, 2> counts;
 
         EventDistribution(Index_t n_coszenith, Index_t n_reco)
-            : coszenith({n_coszenith}), reco_energy_gev({n_reco}), counts({n_coszenith, n_reco}) {}
+            : coszenith({n_coszenith}), reco_energy_gev({n_reco}), coszenith_edges({n_coszenith + 1}),
+              reco_energy_edges_gev({n_reco + 1}), counts({n_coszenith, n_reco}) {}
     };
 
     // Convert propagated νμ + ν̄μ flux into reconstructed event counts:

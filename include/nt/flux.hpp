@@ -111,4 +111,22 @@ namespace nt {
     [[nodiscard]] Flux resample_flux(const Flux& source, nda::View<const Real_t, 1> coszenith,
                                      nda::View<const Real_t, 1> energy_gev);
 
+    // Generate the legacy midpoint samples inside each coszenith bin:
+    //
+    //     z[j,k] = edge[j] + (k + 0.5) / samples_per_bin
+    //                        * (edge[j + 1] - edge[j])
+    //
+    // Samples belonging to one bin are contiguous.
+    [[nodiscard]] nda::Array<Real_t, 1> sample_coszenith_bin_midpoints(nda::View<const Real_t, 1> bin_edges,
+                                                                       Index_t                    samples_per_bin);
+
+    // Average a finely sampled Flux back to its original coszenith bins.
+    //
+    // The input ordering must be the ordering produced by
+    // sample_coszenith_bin_midpoints(). The output coszenith coordinate is the
+    // exact arithmetic midpoint of each pair of bin edges, matching the legacy
+    // averageFluxBackToBins() convention.
+    [[nodiscard]] Flux average_flux_to_coszenith_bins(const Flux& fine_flux, nda::View<const Real_t, 1> bin_edges,
+                                                      Index_t samples_per_bin);
+
 } // namespace nt

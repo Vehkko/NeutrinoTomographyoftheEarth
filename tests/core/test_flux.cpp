@@ -273,6 +273,92 @@ namespace {
         std::cout << "[PASS] flux resampling\n";
     }
 
+    // -----------------------------------------------------------------------------
+    // Test 4: legacy midpoint sampling inside nonuniform coszenith bins.
+    // -----------------------------------------------------------------------------
+
+    void test_coszenith_bin_midpoints() {
+        const std::array<Real_t, 4> edges = {-1.0, -0.9, -0.4, 0.0};
+        const auto edge_view              = nda::make_view1d(static_cast<const Real_t*>(edges.data()), edges.size());
+
+        constexpr Index_t samples_per_bin = 3;
+        const auto        samples         = nt::sample_coszenith_bin_midpoints(edge_view, samples_per_bin);
+
+        require(samples.extent(0) == 9, "wrong number of coszenith midpoint samples");
+
+        Index_t index = 0;
+        for (Index_t j = 0; j + 1 < edges.size(); ++j) {
+            for (Index_t k = 0; k < samples_per_bin; ++k) {
+                const Real_t u        = (static_cast<Real_t>(k) + Real_t{0.5}) / static_cast<Real_t>(samples_per_bin);
+                const Real_t expected = edges[j] + u * (edges[j + 1] - edges[j]);
+                require_close(samples(index++), expected, "wrong coszenith midpoint sample");
+            }
+        }
+
+        std::cout << "[PASS] coszenith bin midpoint sampling\n";
+    }
+
+    // -----------------------------------------------------------------------------
+    // Test 5: legacy arithmetic averaging from fine samples back to bins.
+    // -----------------------------------------------------------------------------
+
+    void test_average_flux_to_bins() {
+        const std::array<Real_t, 4> edges = {-1.0, -0.9, -0.4, 0.0};
+        const auto edge_view              = nda::make_view1d(static_cast<const Real_t*>(edges.data()), edges.size());
+
+        constexpr Index_t samples_per_bin = 3;
+        const auto        samples         = nt::sample_coszenith_bin_midpoints(edge_view, samples_per_bin);
+
+        Flux fine(samples.extent(0), 2);
+
+        for (Index_t z = 0; z < samples.extent(0); ++z)
+            fine.coszenith()(z) = samples(z);
+
+        fine.energy_gev()(0) = 100.0;
+        fine.energy_gev()(1) = 200.0;
+
+        for (Index_t p = 0; p < 2; ++p) {
+            for (Index_t f = 0; f < 3; ++f) {
+                const auto particle  = static_cast<Particle>(p);
+                const auto flavor    = static_cast<Flavor>(f);
+                auto       component = fine.component(particle, flavor);
+
+                for (Index_t z = 0; z < fine.n_coszenith(); ++z) {
+                    for (Index_t e = 0; e < fine.n_energy(); ++e)
+                        component(z, e) = reference_flux(particle, flavor, fine.coszenith()(z), fine.energy_gev()(e));
+                }
+            }
+        }
+
+        const auto averaged = nt::average_flux_to_coszenith_bins(fine, edge_view, samples_per_bin);
+
+        require(averaged.n_coszenith() == 3, "wrong averaged coszenith dimension");
+        require(averaged.n_energy() == 2, "wrong averaged energy dimension");
+
+        require_close(averaged.energy_gev()(0), 100.0, "averaging changed energy axis");
+        require_close(averaged.energy_gev()(1), 200.0, "averaging changed energy axis");
+
+        for (Index_t z = 0; z < averaged.n_coszenith(); ++z) {
+            const Real_t center = Real_t{0.5} * (edges[z] + edges[z + 1]);
+            require_close(averaged.coszenith()(z), center, "wrong averaged coszenith coordinate");
+
+            for (Index_t p = 0; p < 2; ++p) {
+                for (Index_t f = 0; f < 3; ++f) {
+                    const auto particle  = static_cast<Particle>(p);
+                    const auto flavor    = static_cast<Flavor>(f);
+                    const auto component = averaged.component(particle, flavor);
+
+                    for (Index_t e = 0; e < averaged.n_energy(); ++e) {
+                        const Real_t expected = reference_flux(particle, flavor, center, averaged.energy_gev()(e));
+                        require_close(component(z, e), expected, "wrong flux after averaging back to bins");
+                    }
+                }
+            }
+        }
+
+        std::cout << "[PASS] flux averaging back to coszenith bins\n";
+    }
+
 } // namespace
 
 int main() {
@@ -280,6 +366,8 @@ int main() {
         test_component_views();
         test_daemonflux_loader();
         test_resample_flux();
+        test_coszenith_bin_midpoints();
+        test_average_flux_to_bins();
 
         std::cout << "[PASS] all flux tests\n";
         return 0;

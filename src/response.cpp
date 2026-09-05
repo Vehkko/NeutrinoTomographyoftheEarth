@@ -2,6 +2,7 @@
 #include <nt/types.hpp>
 #include <vndarray/ndarray.hpp>
 
+#include <array>
 #include <charconv>
 #include <cmath>
 #include <cstddef>
@@ -23,6 +24,46 @@ namespace nt {
         constexpr const char* response_filename = "TRIDENT_response_array_20x34.csv";
 
         constexpr const char* migration_filename = "energy_response_20x20_v2.csv";
+
+        constexpr Real_t trident_log_energy_edge_min   = 3.0;
+        constexpr Real_t trident_log_energy_center_min = 3.05;
+        constexpr Real_t trident_log_energy_step       = 0.1;
+
+        constexpr std::array<Real_t, n_cz> trident_coszenith_centers = {
+            -0.9988, -0.9963, -0.9937, -0.9912, -0.9855, -0.9765, -0.9675, -0.9585, -0.9495, -0.9405, -0.9315, -0.9225,
+            -0.9135, -0.9045, -0.8775, -0.8325, -0.7875, -0.7425, -0.6975, -0.6525, -0.6075, -0.5625, -0.5175, -0.4725,
+            -0.4275, -0.3825, -0.3375, -0.2925, -0.2475, -0.2025, -0.1575, -0.1125, -0.0675, -0.0225,
+        };
+
+        constexpr std::array<Real_t, n_cz + 1> trident_coszenith_edges = {
+            -1.0,   -0.99755, -0.995, -0.99245, -0.98835, -0.981, -0.972, -0.963, -0.954, -0.945, -0.936, -0.927,
+            -0.918, -0.909,   -0.891, -0.855,   -0.81,    -0.765, -0.72,  -0.675, -0.63,  -0.585, -0.54,  -0.495,
+            -0.45,  -0.405,   -0.36,  -0.315,   -0.27,    -0.225, -0.18,  -0.135, -0.09,  -0.045, 0.0,
+        };
+
+        void set_trident_binning(ResponseArray& out) {
+            for (Index_t i = 0; i <= n_true; ++i) {
+                const Real_t energy = std::pow(Real_t{10}, trident_log_energy_edge_min +
+                                                               trident_log_energy_step * static_cast<Real_t>(i));
+
+                out.true_energy_edges_gev(i) = energy;
+                out.reco_energy_edges_gev(i) = energy;
+            }
+
+            for (Index_t i = 0; i < n_true; ++i) {
+                const Real_t energy = std::pow(Real_t{10}, trident_log_energy_center_min +
+                                                               trident_log_energy_step * static_cast<Real_t>(i));
+
+                out.true_energy_gev(i) = energy;
+                out.reco_energy_gev(i) = energy;
+            }
+
+            for (Index_t i = 0; i < n_cz; ++i)
+                out.coszenith(i) = trident_coszenith_centers[i];
+
+            for (Index_t i = 0; i <= n_cz; ++i)
+                out.coszenith_edges(i) = trident_coszenith_edges[i];
+        }
 
         std::string_view trim(std::string_view s) noexcept {
             while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r'))
@@ -117,7 +158,11 @@ namespace nt {
                 if (col > n_cz)
                     return;
 
-                out.coszenith(col - 1) = parse_prefixed_real(cell, "cos_", file, 1, col + 1);
+                const Real_t value = parse_prefixed_real(cell, "cos_", file, 1, col + 1);
+
+                if (std::abs(value - out.coszenith(col - 1)) > 1e-12)
+                    throw std::runtime_error("TRIDENT response coszenith header disagrees with canonical binning in " +
+                                             file.string() + " at column " + std::to_string(col + 1));
             });
 
             if (header_fields != n_cz + 1)
@@ -132,8 +177,14 @@ namespace nt {
 
                 const Index_t fields = for_each_cell(line, [&](Index_t col, std::string_view cell) {
                     if (col == 0) {
-                        const Real_t loge        = parse_prefixed_real(cell, "logE_", file, row + 2, 1);
-                        out.true_energy_gev(row) = std::pow(Real_t{10}, loge);
+                        const Real_t loge = parse_prefixed_real(cell, "logE_", file, row + 2, 1);
+                        const Real_t expected =
+                            trident_log_energy_center_min + trident_log_energy_step * static_cast<Real_t>(row);
+
+                        if (std::abs(loge - expected) > 1e-12)
+                            throw std::runtime_error("TRIDENT response true-energy label disagrees with canonical "
+                                                     "binning in " +
+                                                     file.string() + " at line " + std::to_string(row + 2));
                     } else if (col <= n_cz) {
                         const Real_t value = parse_real(cell, file, row + 2, col + 1);
                         if (value < 0)
@@ -175,7 +226,14 @@ namespace nt {
                 if (col > n_reco)
                     return;
 
-                out.reco_energy_gev(col - 1) = parse_real(cell, file, 1, col + 1);
+                const Real_t value = parse_real(cell, file, 1, col + 1);
+                const Real_t a     = std::log10(out.reco_energy_gev(col - 1));
+                const Real_t b     = std::log10(value);
+
+                if (!std::isfinite(b) || std::abs(a - b) > 1e-4)
+                    throw std::runtime_error("TRIDENT migration reconstructed-energy header disagrees with canonical "
+                                             "binning in " +
+                                             file.string() + " at column " + std::to_string(col + 1));
             });
 
             if (header_fields != n_reco + 1)
@@ -234,12 +292,18 @@ namespace nt {
     ResponseArray load_trident_response(const std::filesystem::path& directory) {
         ResponseArray out(n_true, n_cz, n_reco);
 
+        set_trident_binning(out);
+
         read_detector_response(directory / response_filename, out);
         read_energy_migration(directory / migration_filename, out);
 
         require_strictly_increasing(out.true_energy_gev.view(), "TRIDENT true-energy axis");
         require_strictly_increasing(out.coszenith.view(), "TRIDENT coszenith axis");
         require_strictly_increasing(out.reco_energy_gev.view(), "TRIDENT reconstructed-energy axis");
+
+        require_strictly_increasing(out.true_energy_edges_gev.view(), "TRIDENT true-energy bin edges");
+        require_strictly_increasing(out.coszenith_edges.view(), "TRIDENT coszenith bin edges");
+        require_strictly_increasing(out.reco_energy_edges_gev.view(), "TRIDENT reconstructed-energy bin edges");
 
         return out;
     }

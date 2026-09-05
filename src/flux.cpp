@@ -11,6 +11,7 @@
 #include <H5public.h>
 #include <array>
 #include <cassert>
+#include <cmath>
 #include <cstddef>
 #include <filesystem>
 #include <limits>
@@ -387,6 +388,88 @@ namespace nt {
         copy_axis(coszenith, result.coszenith());
         copy_axis(energy_gev, result.energy_gev());
         resample_state(source, result, zmap, emap);
+
+        return result;
+    }
+
+    // =============================================================================
+    // Coszenith bin sampling
+    // =============================================================================
+
+    nda::Array<Real_t, 1> sample_coszenith_bin_midpoints(nda::View<const Real_t, 1> bin_edges,
+                                                         Index_t                    samples_per_bin) {
+        const Index_t n_edges = bin_edges.extent(0);
+
+        if (n_edges < 2)
+            throw std::invalid_argument("bin_edges must contain at least two edges");
+
+        if (samples_per_bin == 0)
+            throw std::invalid_argument("samples_per_bin must be positive");
+
+        const Index_t         n_bins = n_edges - 1;
+        nda::Array<Real_t, 1> samples({n_bins * samples_per_bin});
+
+        for (Index_t j = 0; j < n_bins; ++j) {
+            const Real_t c0 = bin_edges(j);
+            const Real_t c1 = bin_edges(j + 1);
+
+            if (!std::isfinite(c0) || !std::isfinite(c1))
+                throw std::invalid_argument("non-finite coszenith bin edge");
+
+            if (c0 < -1.0 || c0 > 1.0 || c1 < -1.0 || c1 > 1.0)
+                throw std::invalid_argument("coszenith bin edge out of [-1, 1]");
+
+            for (Index_t k = 0; k < samples_per_bin; ++k) {
+                const Real_t u = (static_cast<Real_t>(k) + Real_t{0.5}) / static_cast<Real_t>(samples_per_bin);
+                samples(j * samples_per_bin + k) = c0 + u * (c1 - c0);
+            }
+        }
+
+        return samples;
+    }
+
+    Flux average_flux_to_coszenith_bins(const Flux& fine_flux, nda::View<const Real_t, 1> bin_edges,
+                                        Index_t samples_per_bin) {
+        const Index_t n_edges = bin_edges.extent(0);
+
+        if (n_edges < 2)
+            throw std::invalid_argument("bin_edges must contain at least two edges");
+
+        if (samples_per_bin == 0)
+            throw std::invalid_argument("samples_per_bin must be positive");
+
+        const Index_t n_bins        = n_edges - 1;
+        const Index_t n_energy      = fine_flux.n_energy();
+        const Index_t expected_fine = n_bins * samples_per_bin;
+
+        if (fine_flux.n_coszenith() != expected_fine)
+            throw std::invalid_argument("fine_flux coszenith size does not match bin_edges and samples_per_bin");
+
+        Flux result(n_bins, n_energy);
+
+        for (Index_t j = 0; j < n_bins; ++j)
+            result.coszenith()(j) = Real_t{0.5} * (bin_edges(j) + bin_edges(j + 1));
+
+        copy_axis(fine_flux.energy_gev(), result.energy_gev());
+
+        const Real_t inv_n = Real_t{1} / static_cast<Real_t>(samples_per_bin);
+        const auto&  src   = fine_flux.native_state();
+        auto&        dst   = result.native_state();
+
+        for (Index_t j = 0; j < n_bins; ++j) {
+            for (Index_t e = 0; e < n_energy; ++e) {
+                for (Index_t p = 0; p < particle_count; ++p) {
+                    for (Index_t f = 0; f < flavor_count; ++f) {
+                        Real_t sum = 0;
+
+                        for (Index_t k = 0; k < samples_per_bin; ++k)
+                            sum += src[j * samples_per_bin + k][e][p][f];
+
+                        dst[j][e][p][f] = sum * inv_n;
+                    }
+                }
+            }
+        }
 
         return result;
     }

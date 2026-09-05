@@ -28,12 +28,18 @@ namespace nt {
         nda::Array<Real_t, 1> coszenith;
         nda::Array<Real_t, 1> reco_energy_gev;
 
+        nda::Array<Real_t, 1> true_energy_edges_gev;
+        nda::Array<Real_t, 1> coszenith_edges;
+        nda::Array<Real_t, 1> reco_energy_edges_gev;
+
         nda::Array<Real_t, 2> detector_response; // [true_energy, coszenith]
         nda::Array<Real_t, 2> energy_migration;  // [true_energy, reco_energy]
 
         ResponseArray(Index_t n_true, Index_t n_coszenith, Index_t n_reco)
             : true_energy_gev({n_true}), coszenith({n_coszenith}), reco_energy_gev({n_reco}),
-              detector_response({n_true, n_coszenith}), energy_migration({n_true, n_reco}) {}
+              true_energy_edges_gev({n_true + 1}), coszenith_edges({n_coszenith + 1}),
+              reco_energy_edges_gev({n_reco + 1}), detector_response({n_true, n_coszenith}),
+              energy_migration({n_true, n_reco}) {}
     };
 
     // Read the final TRIDENT response files:
