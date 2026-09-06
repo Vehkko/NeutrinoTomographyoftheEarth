@@ -205,10 +205,11 @@ int main(int argc, char** argv) {
             }
         }
 
-        const fs::path daemonflux_file = "data/generated/daemonflux/daemonflux_0.8.2.h5";
-        const fs::path result_dir      = "result/trident_events";
-        const fs::path figure_dir      = result_dir / "figures";
-        const fs::path csv_file        = result_dir / "events.csv";
+        const fs::path daemonflux_file     = "data/generated/daemonflux/daemonflux_0.8.2.h5";
+        const fs::path result_dir          = "result/trident_events";
+        const fs::path figure_dir          = result_dir / "figures";
+        const fs::path initial_csv_file    = result_dir / "initial_events.csv";
+        const fs::path propagated_csv_file = result_dir / "propagated_events.csv";
 
         if (!fs::is_regular_file(daemonflux_file)) {
             throw std::runtime_error("DaemonFlux table not found: " + daemonflux_file.string() +
@@ -253,27 +254,44 @@ int main(int argc, char** argv) {
         // which was checked above.
         const auto initial = nt::resample_flux(daemonflux, response.coszenith.view(), response.true_energy_gev.view());
 
-        std::cout << cyan << "Propagating through Earth..." << reset << '\n';
+        std::cout << cyan << "Applying detector response to initial flux..." << reset << '\n';
 
-        const auto propagated = nt::propagate_flux(initial, prem, earth);
+        const auto initial_events = nt::predict_events(initial, response);
 
-        std::cout << cyan << "Applying detector response..." << reset << '\n';
+        write_events_csv(initial_csv_file, initial_events);
 
-        const auto events = nt::predict_events(propagated, response);
+        const Real_t initial_total = total_events(initial_events);
 
-        write_events_csv(csv_file, events);
+        std::cout << cyan << "Propagating through Earth with interactions enabled..." << reset << '\n';
 
-        const Real_t total = total_events(events);
+        nt::PropagationOptions propagation_options;
+        propagation_options.interactions = true;
+
+        const auto propagated = nt::propagate_flux(initial, prem, earth, propagation_options);
+
+        std::cout << cyan << "Applying detector response to propagated flux..." << reset << '\n';
+
+        const auto propagated_events = nt::predict_events(propagated, response);
+
+        write_events_csv(propagated_csv_file, propagated_events);
+
+        const Real_t propagated_total = total_events(propagated_events);
 
         std::cout << '\n';
         std::cout << dim << "────────────────────────────────────────────────────────────" << reset << '\n';
-        std::cout << green << bold << "Total expected events : " << std::fixed << std::setprecision(6) << total << reset
-                  << '\n';
-        std::cout << "Event table           : " << csv_file << '\n';
+        std::cout << green << bold << "Initial total events    : " << std::fixed << std::setprecision(6)
+                  << initial_total << reset << '\n';
+        std::cout << green << bold << "Propagated total events : " << std::fixed << std::setprecision(6)
+                  << propagated_total << reset << '\n';
+        std::cout << "Initial event table     : " << initial_csv_file << '\n';
+        std::cout << "Propagated event table  : " << propagated_csv_file << '\n';
 
         if (plot) {
-            plot_events(csv_file, figure_dir);
-            std::cout << "Figures               : " << figure_dir << '\n';
+            plot_events(initial_csv_file, figure_dir / "initial");
+            plot_events(propagated_csv_file, figure_dir / "propagated");
+
+            std::cout << "Initial figures         : " << figure_dir / "initial" << '\n';
+            std::cout << "Propagated figures      : " << figure_dir / "propagated" << '\n';
         }
 
         std::cout << dim << "────────────────────────────────────────────────────────────" << reset << '\n';
