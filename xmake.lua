@@ -261,3 +261,20 @@ add_includedirs(nt_include, vndarray_include)
 
 add_deps("ntcore")
 add_files("cases/trident_events/main.cpp")
+
+-- ============================================================
+-- Five-layer constant-density tomography with MultiNest
+-- ============================================================
+
+target("case_tomography_mnest")
+set_kind("binary")
+
+apply_native_stack()
+apply_mkl()
+apply_intel_mpi()
+apply_mpi_run(24)
+
+add_links("multinest_mpi")
+
+add_deps("ntcore")
+add_files("cases/tomography_mnest/main.cpp")
