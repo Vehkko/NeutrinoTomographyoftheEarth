@@ -3,6 +3,7 @@
 #include <nt/earth.hpp>
 #include <nt/events.hpp>
 #include <nt/flux.hpp>
+#include <nt/propagation.hpp>
 #include <nt/response.hpp>
 #include <nt/types.hpp>
 #include <vndarray/ndarray.hpp>
@@ -81,6 +82,7 @@ namespace {
         const nt::ResponseArray*     response = nullptr;
         const nt::Flux*              initial  = nullptr;
         const nt::EventDistribution* data     = nullptr;
+        nt::EarthPropagator*         solver   = nullptr;
 
         std::uint64_t evaluations = 0;
         bool          console     = false;
@@ -113,11 +115,7 @@ namespace {
 
             const auto earth = nt::make_layered_constant_5(*ctx.prem, view(q));
 
-            nt::PropagationOptions options;
-            options.interactions = true;
-            options.threads      = 1;
-
-            const auto propagated = nt::propagate_flux(*ctx.initial, *ctx.prem, earth, options);
+            const auto propagated = ctx.solver->propagate(*ctx.initial, *ctx.prem, earth);
             const auto prediction = nt::predict_events(propagated, *ctx.response);
 
             double value = 0.0;
@@ -211,8 +209,10 @@ int main() {
         options.interactions = true;
         options.threads      = 1;
 
+        nt::EarthPropagator solver(initial, options);
+
         // Asimov data are generated from the full PREM profile.
-        const auto asimov_flux = nt::propagate_flux(initial, prem, options);
+        const auto asimov_flux = solver.propagate(initial, prem);
         const auto asimov_data = nt::predict_events(asimov_flux, response);
 
         if (root_process) {
@@ -255,6 +255,7 @@ int main() {
         context.response = &response;
         context.initial  = &initial;
         context.data     = &asimov_data;
+        context.solver   = &solver;
         context.console  = root_process;
 
         int ndims   = 5;

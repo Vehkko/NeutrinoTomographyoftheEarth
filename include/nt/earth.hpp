@@ -3,11 +3,12 @@
 #include <array>
 #include <filesystem>
 
-#include <nt/flux.hpp>
 #include <nt/types.hpp>
 #include <vndarray/ndarray.hpp>
 
 namespace nt {
+
+    namespace nda = vehkko::ndarray;
 
     // Tabulated PREM profile:
     //
@@ -92,12 +93,6 @@ namespace nt {
         Real_t gaussian_cutoff_sigma = 0.0;
 
         [[nodiscard]] Real_t weight(Real_t radius_km) const noexcept;
-    };
-
-    struct PropagationOptions {
-        bool    interactions = true;
-        Index_t threads      = 1;
-        Real_t  h_max_km     = 500.0;
     };
 
     [[nodiscard]] EarthProfile load_prem(const std::filesystem::path& filename = "data/PREM/EARTH_MODEL_PREM.dat");
@@ -196,21 +191,5 @@ namespace nt {
 
     [[nodiscard]] Real_t mean_density_g_cm3(const EarthProfile& prem, const PremScaledEarth& earth,
                                             Real_t inner_radius_km, Real_t outer_radius_km);
-
-    // Plain PREM.
-    [[nodiscard]] Flux propagate_flux(const Flux& initial, const EarthProfile& prem,
-                                      const PropagationOptions& options = {});
-
-    // Layered constant-density rho with PREM Ye(r).
-    [[nodiscard]] Flux propagate_flux(const Flux& initial, const EarthProfile& prem, const LayeredEarth& earth,
-                                      const PropagationOptions& options = {});
-
-    // Piecewise PREM density scaling with PREM Ye(r).
-    [[nodiscard]] Flux propagate_flux(const Flux& initial, const EarthProfile& prem, const PremScaledEarth& earth,
-                                      const PropagationOptions& options = {});
-
-    // Local PREM perturbation with PREM Ye(r).
-    [[nodiscard]] Flux propagate_flux(const Flux& initial, const EarthProfile& prem,
-                                      const DensityPerturbation& perturbation, const PropagationOptions& options = {});
 
 } // namespace nt

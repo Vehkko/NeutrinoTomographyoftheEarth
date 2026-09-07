@@ -190,7 +190,7 @@ apply_native_stack()
 
 add_includedirs(nt_include, vndarray_include, { public = true })
 
-add_files("src/flux.cpp", "src/response.cpp", "src/events.cpp", "src/earth.cpp")
+add_files("src/flux.cpp", "src/response.cpp", "src/events.cpp", "src/earth.cpp", "src/propagation.cpp")
 
 -- ============================================================
 -- Flux

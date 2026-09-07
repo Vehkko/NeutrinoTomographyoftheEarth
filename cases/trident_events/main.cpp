@@ -1,6 +1,7 @@
 #include <nt/earth.hpp>
 #include <nt/events.hpp>
 #include <nt/flux.hpp>
+#include <nt/propagation.hpp>
 #include <nt/response.hpp>
 #include <nt/types.hpp>
 #include <vndarray/ndarray.hpp>
@@ -267,7 +268,9 @@ int main(int argc, char** argv) {
         nt::PropagationOptions propagation_options;
         propagation_options.interactions = true;
 
-        const auto propagated = nt::propagate_flux(initial, prem, earth, propagation_options);
+        nt::EarthPropagator solver(initial, propagation_options);
+
+        const auto propagated = solver.propagate(initial, prem, earth);
 
         std::cout << cyan << "Applying detector response to propagated flux..." << reset << '\n';
 

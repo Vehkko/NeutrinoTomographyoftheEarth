@@ -1,5 +1,6 @@
 #include <nt/earth.hpp>
 #include <nt/flux.hpp>
+#include <nt/propagation.hpp>
 #include <nt/types.hpp>
 
 #include <SQuIDS/const.h>
@@ -21,6 +22,7 @@
 
 namespace {
 
+    using nt::EarthPropagator;
     using nt::Flux;
     using nt::Index_t;
     using nt::LayeredEarth;
@@ -447,9 +449,11 @@ namespace {
         options.threads      = 1;
         options.h_max_km     = 500.0;
 
-        const auto reference = nt::propagate_flux(initial, prem, options);
+        EarthPropagator solver(initial, options);
 
-        const auto result = nt::propagate_flux(initial, prem, scaled, options);
+        const auto reference = solver.propagate(initial, prem);
+
+        const auto result = solver.propagate(initial, prem, scaled);
 
         // Both profiles are mathematically identical, but they reach the
         // PREM spline through slightly different floating-point paths and the
@@ -487,9 +491,11 @@ namespace {
         options.threads      = 1;
         options.h_max_km     = 500.0;
 
-        const auto result3 = nt::propagate_flux(initial, prem, earth3, options);
+        EarthPropagator solver(initial, options);
 
-        const auto result5 = nt::propagate_flux(initial, prem, earth5, options);
+        const auto result3 = solver.propagate(initial, prem, earth3);
+
+        const auto result5 = solver.propagate(initial, prem, earth5);
 
         compare_flux(result3, result5, 2e-5, "3/5-layer PREM scaling is inconsistent");
 
@@ -513,6 +519,8 @@ namespace {
         options.threads      = 1;
         options.h_max_km     = 500.0;
 
+        EarthPropagator solver(initial, options);
+
         {
             const std::array<Real_t, 3> q = {
                 1.15,
@@ -522,7 +530,7 @@ namespace {
 
             const auto earth = nt::make_layered_constant_3(prem, view(q));
 
-            const auto result = nt::propagate_flux(initial, prem, earth, options);
+            const auto result = solver.propagate(initial, prem, earth);
 
             const auto reference = propagate_vertical_constant_reference(initial, earth);
 
@@ -538,7 +546,7 @@ namespace {
 
             const auto earth = nt::make_layered_constant_5(prem, view(q));
 
-            const auto result = nt::propagate_flux(initial, prem, earth, options);
+            const auto result = solver.propagate(initial, prem, earth);
 
             const auto reference = propagate_vertical_constant_reference(initial, earth);
 
@@ -569,9 +577,12 @@ namespace {
         PropagationOptions fine = coarse;
         fine.h_max_km           = 50.0;
 
-        const auto result_coarse = nt::propagate_flux(initial, prem, earth, coarse);
+        EarthPropagator coarse_solver(initial, coarse);
+        EarthPropagator fine_solver(initial, fine);
 
-        const auto result_fine = nt::propagate_flux(initial, prem, earth, fine);
+        const auto result_coarse = coarse_solver.propagate(initial, prem, earth);
+
+        const auto result_fine = fine_solver.propagate(initial, prem, earth);
 
         // This is deliberately tighter than any physics-level uncertainty, but
         // loose enough to reflect an adaptive solver configured at 1e-6.
@@ -594,21 +605,88 @@ namespace {
         options.threads      = 1;
         options.h_max_km     = 500.0;
 
-        const auto reference = nt::propagate_flux(initial, prem, options);
+        EarthPropagator solver(initial, options);
+
+        const auto reference = solver.propagate(initial, prem);
 
         const auto relative_box = nt::make_relative_box_perturbation(3000.0, 400.0, 0.0);
 
         const auto absolute_gaussian = nt::make_absolute_gaussian_perturbation(3000.0, 150.0, 0.0);
 
-        const auto box_result = nt::propagate_flux(initial, prem, relative_box, options);
+        const auto box_result = solver.propagate(initial, prem, relative_box);
 
-        const auto gaussian_result = nt::propagate_flux(initial, prem, absolute_gaussian, options);
+        const auto gaussian_result = solver.propagate(initial, prem, absolute_gaussian);
 
         compare_flux(box_result, reference, 2e-5, "zero relative box changed PREM");
 
         compare_flux(gaussian_result, reference, 2e-5, "zero absolute Gaussian changed PREM");
 
         std::cout << "[PASS] zero density perturbation\n";
+    }
+
+    void test_propagator_reuse_with_interactions() {
+        const auto prem    = nt::load_prem();
+        const auto initial = make_vertical_test_flux();
+
+        const std::array<Real_t, 5> q_a = {
+            1.08, 0.93, 1.11, 0.88, 1.04,
+        };
+
+        const std::array<Real_t, 5> q_b = {
+            0.97, 1.06, 0.91, 1.12, 0.95,
+        };
+
+        const auto earth_a = nt::make_layered_constant_5(prem, view(q_a));
+
+        const auto earth_b = nt::make_layered_constant_5(prem, view(q_b));
+
+        PropagationOptions options;
+        options.interactions = true;
+        options.threads      = 1;
+        options.h_max_km     = 500.0;
+
+        EarthPropagator solver(initial, options);
+
+        const auto first_a = solver.propagate(initial, prem, earth_a);
+
+        (void)solver.propagate(initial, prem, earth_b);
+
+        const auto second_a = solver.propagate(initial, prem, earth_a);
+
+        // The first propagation initializes the interaction tables. The second
+        // evaluation of the same Earth therefore exercises the cached path after
+        // both the state and Earth model have been replaced.
+        compare_flux(second_a, first_a, 0.0, "reused propagator changed an identical propagation");
+
+        std::cout << "[PASS] reusable propagator with interactions\n";
+    }
+
+    void test_propagator_grid_validation() {
+        const auto prem    = nt::load_prem();
+        const auto initial = make_test_flux();
+
+        PropagationOptions options;
+        options.interactions = false;
+        options.threads      = 1;
+        options.h_max_km     = 500.0;
+
+        EarthPropagator solver(initial, options);
+
+        auto mismatched = make_test_flux();
+
+        mismatched.energy_gev()(2) = 21.0;
+
+        bool rejected = false;
+
+        try {
+            (void)solver.propagate(mismatched, prem);
+        } catch (const std::invalid_argument&) {
+            rejected = true;
+        }
+
+        require(rejected, "EarthPropagator accepted a different energy grid");
+
+        std::cout << "[PASS] propagator grid validation\n";
     }
 
 } // namespace
@@ -627,6 +705,9 @@ int main() {
         test_layered_step_convergence();
 
         test_zero_perturbation();
+
+        test_propagator_reuse_with_interactions();
+        test_propagator_grid_validation();
 
         std::cout << "[PASS] all Earth/propagation tests\n";
 
