@@ -117,6 +117,15 @@ namespace {
         double                          logz_error = std::numeric_limits<double>::quiet_NaN();
     };
 
+    const RunConfig* find_run(const std::string& name) {
+        for (const auto& run : RUNS) {
+            if (name == run.name)
+                return &run;
+        }
+
+        return nullptr;
+    }
+
     template <std::size_t N> auto view(const std::array<Real_t, N>& values) {
         return nda::make_view1d(static_cast<const Real_t*>(values.data()), values.size());
     }
@@ -311,6 +320,8 @@ namespace {
         fs::create_directories(raw_output_dir);
 
         if (root_process) {
+            fs::remove(run_dir / "summary.dat");
+
             std::cout << '\n';
             std::cout << "============================================================\n";
             std::cout << "Run       : " << config.name << '\n';
@@ -388,6 +399,41 @@ namespace {
         return summary;
     }
 
+    void write_run_summary(const fs::path& filename, const RunSummary& summary) {
+        std::ofstream file(filename);
+
+        if (!file)
+            throw std::runtime_error("cannot open run summary file: " + filename.string());
+
+        file << std::setprecision(17);
+        file << summary.logz << ' ' << summary.logz_error << '\n';
+
+        for (const auto& p : summary.parameters) {
+            file << p.q16 << ' ' << p.q50 << ' ' << p.q84 << ' ' << p.rho16 << ' ' << p.rho50 << ' ' << p.rho84 << ' '
+                 << p.precision << '\n';
+        }
+    }
+
+    RunSummary read_run_summary(const fs::path& filename, const RunConfig& config) {
+        std::ifstream file(filename);
+
+        if (!file)
+            throw std::runtime_error("cannot open run summary file: " + filename.string());
+
+        RunSummary summary;
+        summary.config = config;
+
+        if (!(file >> summary.logz >> summary.logz_error))
+            throw std::runtime_error("invalid run summary header: " + filename.string());
+
+        for (auto& p : summary.parameters) {
+            if (!(file >> p.q16 >> p.q50 >> p.q84 >> p.rho16 >> p.rho50 >> p.rho84 >> p.precision))
+                throw std::runtime_error("invalid run summary data: " + filename.string());
+        }
+
+        return summary;
+    }
+
     void write_summary(const fs::path& filename, const std::vector<RunSummary>& summaries) {
         std::ofstream file(filename);
 
@@ -396,8 +442,8 @@ namespace {
 
         file << "# Five-layer constant-density MultiNest parameter scan\n\n";
         file << "Baseline: `nlive = 1000`, `tol = 0.1`, `q_i ~ Uniform[0,4]`.\n\n";
-        file << "All runs use the same PREM Asimov data, propagation grid, likelihood, MultiNest settings and seed "
-                "except for the parameter explicitly varied.\n\n";
+        file << "All runs use the same PREM Asimov construction, propagation grid, likelihood, MultiNest settings and "
+                "seed except for the parameter explicitly varied.\n\n";
         file << "The central value is the posterior median. The central 68% interval is `[q16, q84]` and\n\n";
         file << "`precision = (q84 - q16) / (2 * q50)`.\n\n";
 
@@ -434,6 +480,47 @@ namespace {
 } // namespace
 
 int main(int argc, char** argv) {
+    const fs::path result_dir = "result/tomography_mnest_settings";
+
+    if (argc == 2 && std::string(argv[1]) == "--summarize") {
+        try {
+            std::vector<RunSummary> summaries;
+            summaries.reserve(RUNS.size());
+
+            for (const auto& config : RUNS)
+                summaries.push_back(read_run_summary(result_dir / config.name / "summary.dat", config));
+
+            const fs::path summary_file = result_dir / "summary.md";
+
+            write_summary(summary_file, summaries);
+
+            std::cout << '\n';
+            std::cout << "============================================================\n";
+            std::cout << "All runs finished\n";
+            std::cout << "Summary: " << summary_file << '\n';
+            std::cout << "============================================================\n";
+
+            return 0;
+        } catch (const std::exception& error) {
+            std::cerr << "[fatal] " << error.what() << '\n';
+            return 1;
+        }
+    }
+
+    if (argc != 3 || std::string(argv[1]) != "--run") {
+        std::cerr << "Usage:\n";
+        std::cerr << "  " << argv[0] << " --run <name>\n";
+        std::cerr << "  " << argv[0] << " --summarize\n";
+        return 1;
+    }
+
+    const RunConfig* config = find_run(argv[2]);
+
+    if (!config) {
+        std::cerr << "[fatal] unknown run: " << argv[2] << '\n';
+        return 1;
+    }
+
     if (MPI_Init(&argc, &argv) != MPI_SUCCESS) {
         std::cerr << "[fatal] MPI_Init failed\n";
         return 1;
@@ -448,7 +535,6 @@ int main(int argc, char** argv) {
 
     try {
         const fs::path daemonflux_file = "data/generated/daemonflux/daemonflux_0.8.2.h5";
-        const fs::path result_dir      = "result/tomography_mnest_settings";
 
         if (!fs::is_regular_file(daemonflux_file))
             throw std::runtime_error("DaemonFlux table not found: " + daemonflux_file.string());
@@ -468,7 +554,7 @@ int main(int argc, char** argv) {
 
         nt::EarthPropagator solver(initial, options);
 
-        // The same PREM Asimov data are used by every MultiNest run.
+        // Every atomic run independently regenerates the same PREM Asimov data.
         const auto asimov_flux = solver.propagate(initial, prem);
         const auto asimov_data = nt::predict_events(asimov_flux, response);
 
@@ -478,6 +564,7 @@ int main(int argc, char** argv) {
             std::cout << '\n';
             std::cout << "TRIDENT five-layer constant-density MultiNest settings scan\n";
             std::cout << "------------------------------------------------------------\n";
+            std::cout << "Run              : " << config->name << '\n';
             std::cout << "Asimov truth     : full PREM\n";
             std::cout << "Fit model        : five-layer constant density\n";
             std::cout << "Exposure         : " << EXPOSURE_YEARS << " year\n";
@@ -488,29 +575,15 @@ int main(int argc, char** argv) {
                       << total_events(asimov_data) * EXPOSURE_YEARS << '\n';
         }
 
-        std::vector<RunSummary> summaries;
-
-        if (root_process)
-            summaries.reserve(RUNS.size());
-
-        for (const auto& config : RUNS) {
-            const auto summary =
-                run_multinest(config, result_dir, prem, response, initial, asimov_data, solver, prem_density, rank);
-
-            if (root_process)
-                summaries.push_back(summary);
-        }
+        const auto summary =
+            run_multinest(*config, result_dir, prem, response, initial, asimov_data, solver, prem_density, rank);
 
         if (root_process) {
-            const fs::path summary_file = result_dir / "summary.md";
+            const fs::path summary_file = result_dir / config->name / "summary.dat";
 
-            write_summary(summary_file, summaries);
+            write_run_summary(summary_file, summary);
 
-            std::cout << '\n';
-            std::cout << "============================================================\n";
-            std::cout << "All runs finished\n";
-            std::cout << "Summary: " << summary_file << '\n';
-            std::cout << "============================================================\n";
+            std::cout << "Run summary: " << summary_file << '\n';
         }
     } catch (const std::exception& error) {
         if (root_process)
@@ -520,6 +593,7 @@ int main(int argc, char** argv) {
     }
 
     int global_exit_code = 0;
+
     MPI_Allreduce(&exit_code, &global_exit_code, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
 
     MPI_Finalize();

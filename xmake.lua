@@ -283,15 +283,55 @@ add_files("cases/tomography_mnest/main.cpp")
 -- Five-layer constant-density MultiNest settings scan
 -- ============================================================
 
-target("case_tomography_mnest_options")
+target("case_tomography_mnest_settings")
 set_kind("binary")
 
 apply_native_stack()
 apply_mkl()
 apply_intel_mpi()
-apply_mpi_run(24)
 
 add_links("multinest_mpi")
 
 add_deps("ntcore")
-add_files("cases/tomography_mnest_options/main.cpp")
+add_files("cases/tomography_mnest_settings/main.cpp")
+
+on_run(function(target)
+	local mpi_root = os.getenv("I_MPI_ROOT")
+
+	if not mpi_root or mpi_root == "" then
+		raise("I_MPI_ROOT is not set. Activate Intel oneAPI before running an MPI target.")
+	end
+
+	local mpiexec = path.join(mpi_root, "bin", "mpiexec")
+
+	if not os.isfile(mpiexec) then
+		raise("Intel MPI launcher not found: " .. mpiexec)
+	end
+
+	local runs = {
+		"baseline",
+		"nlive_2000",
+		"nlive_3000",
+		"tol_0p01",
+		"prior_3",
+		"prior_5",
+	}
+
+	for _, run in ipairs(runs) do
+		os.execv(mpiexec, {
+			"-n",
+			"24",
+			target:targetfile(),
+			"--run",
+			run,
+		}, {
+			curdir = os.projectdir(),
+		})
+	end
+
+	os.execv(target:targetfile(), {
+		"--summarize",
+	}, {
+		curdir = os.projectdir(),
+	})
+end)
