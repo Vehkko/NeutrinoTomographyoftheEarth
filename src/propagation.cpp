@@ -214,19 +214,6 @@ namespace nt {
 
         nus_.Set_EarthModel(std::move(earth));
 
-        // { // print inistate
-        //     const auto& inistate = initial.native_state();
-        //
-        //     std::cout << "inistate[0][0][0][1] = " << std::scientific << std::setprecision(17) <<
-        //     inistate[0][0][0][1]
-        //               << '\n';
-        //     std::cout << "inistate[4][0][0][1] = " << std::scientific << std::setprecision(17) <<
-        //     inistate[4][0][0][1]
-        //               << '\n';
-        //
-        //     nus_.Set_initial_state(inistate, nusquids::flavor);
-        // }
-
         // Flux already has nuSQuIDS' required native layout:
         //
         //     [coszenith, energy, particle, flavor]

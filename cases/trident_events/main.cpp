@@ -360,6 +360,33 @@ int main(int argc, char** argv) {
 
         print_model(earth);
 
+        { // debug density and Ye around the core-mantle boundary
+            constexpr Real_t earth_radius_km = 6371.0;
+
+            std::vector<double> prem_x(prem.radius_fraction.data(),
+                                       prem.radius_fraction.data() + prem.radius_fraction.extent(0));
+
+            std::vector<double> prem_ye(prem.ye.data(), prem.ye.data() + prem.ye.extent(0));
+
+            nusquids::AkimaSpline ye_interp(prem_x, prem_ye);
+
+            const std::array<Real_t, 18> samples = {
+                0.519465, 0.522810, 0.526155, 0.529500, 0.532845, 0.536190, 0.539535, 0.542880, 0.546225,
+                0.549541, 0.552857, 0.556173, 0.559490, 0.562806, 0.566122, 0.569438, 0.572754, 0.576070,
+            };
+
+            std::cout << '\n';
+            std::cout << std::fixed << std::setprecision(6);
+
+            for (const Real_t x : samples) {
+                const Real_t radius_km = x * earth_radius_km;
+                const Real_t rho       = nt::density_g_cm3(earth, radius_km);
+                const Real_t ye        = ye_interp(x);
+
+                std::cout << x << ' ' << rho << ' ' << ye << '\n';
+            }
+        }
+
         const auto fine_coszenith =
             nt::sample_coszenith_bin_midpoints(response.coszenith_edges.view(), coszenith_samples_per_bin);
 
@@ -443,10 +470,91 @@ int main(int argc, char** argv) {
 
         nt::EarthPropagator solver(initial_fine, propagation_options);
 
+        // { // print initial flux
+        //     const auto numu     = initial_fine.numu();
+        //     const auto antinumu = initial_fine.antinumu();
+        //
+        //     std::cout << std::scientific << std::setprecision(17) << "initial numu[0][0]     = " << numu(0, 0) <<
+        //     '\n'
+        //               << "initial numu[4][0]     = " << numu(4, 0) << '\n'
+        //               << "initial antinumu[0][0] = " << antinumu(0, 0) << '\n'
+        //               << "initial antinumu[4][0] = " << antinumu(4, 0) << '\n';
+        // }
+
         const auto propagated_fine = solver.propagate(initial_fine, prem, earth);
+
+        // { // debug: save propagated nu_mu + anti-nu_mu flux matrix to project root
+        //     if (propagated_fine.n_coszenith() != 34 || propagated_fine.n_energy() != 100) {
+        //         throw std::runtime_error("Debug flux matrix is not 34x100; run with "
+        //                                  "--coszenith-samples-per-bin 1 --energy-samples-per-bin 5");
+        //     }
+        //
+        //     const auto numu     = propagated_fine.numu();
+        //     const auto antinumu = propagated_fine.antinumu();
+        //
+        //     std::ofstream file("propagated_numu_total_34x100.csv");
+        //
+        //     if (!file)
+        //         throw std::runtime_error("Cannot create propagated_numu_total_34x100.csv");
+        //
+        //     file << std::scientific << std::setprecision(17);
+        //
+        //     for (Index_t z = 0; z < propagated_fine.n_coszenith(); ++z) {
+        //         for (Index_t e = 0; e < propagated_fine.n_energy(); ++e) {
+        //             if (e != 0)
+        //                 file << ',';
+        //
+        //             file << numu(z, e) + antinumu(z, e);
+        //         }
+        //
+        //         file << '\n';
+        //     }
+        //
+        //     std::cout << "Saved propagated_numu_total_34x100.csv\n";
+        // }
+
+        // { // print propagated flux
+        //     const auto propagated_numu     = propagated_fine.numu();
+        //     const auto propagated_antinumu = propagated_fine.antinumu();
+        //     std::cout << std::scientific << std::setprecision(17)
+        //               << "propagated numu[0][0]     = " << propagated_numu(0, 0) << '\n'
+        //               << "propagated numu[4][0]     = " << propagated_numu(4, 0) << '\n'
+        //               << "propagated antinumu[0][0] = " << propagated_antinumu(0, 0) << '\n'
+        //               << "propagated antinumu[4][0] = " << propagated_antinumu(4, 0) << '\n';
+        //
+        //     const auto propagated = average_flux_to_response_bins(propagated_fine, response,
+        //     coszenith_samples_per_bin,
+        //                                                           energy_samples_per_bin);
+        // }
 
         const auto propagated =
             average_flux_to_response_bins(propagated_fine, response, coszenith_samples_per_bin, energy_samples_per_bin);
+
+        { // debug: save 34x20 propagated nu_mu + anti-nu_mu flux
+            if (propagated.n_coszenith() != 34 || propagated.n_energy() != 20)
+                throw std::runtime_error("Propagated flux matrix is not 34x20");
+
+            const auto numu     = propagated.numu();
+            const auto antinumu = propagated.antinumu();
+
+            std::ofstream file("propagated_flux_34x20.csv");
+
+            if (!file)
+                throw std::runtime_error("Cannot create propagated_flux_34x20.csv");
+
+            file << std::scientific << std::setprecision(17);
+
+            for (Index_t z = 0; z < propagated.n_coszenith(); ++z) {
+                for (Index_t e = 0; e < propagated.n_energy(); ++e) {
+                    if (e != 0)
+                        file << ',';
+
+                    file << numu(z, e) + antinumu(z, e);
+                }
+
+                file << '\n';
+            }
+        }
 
         std::cout << cyan << "Applying detector response to averaged propagated flux..." << reset << '\n';
 
