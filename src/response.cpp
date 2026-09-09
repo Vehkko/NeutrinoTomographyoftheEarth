@@ -29,17 +29,24 @@ namespace nt {
         constexpr Real_t trident_log_energy_center_min = 3.05;
         constexpr Real_t trident_log_energy_step       = 0.1;
 
-        constexpr std::array<Real_t, n_cz> trident_coszenith_centers = {
-            -0.9988, -0.9963, -0.9937, -0.9912, -0.9855, -0.9765, -0.9675, -0.9585, -0.9495, -0.9405, -0.9315, -0.9225,
-            -0.9135, -0.9045, -0.8775, -0.8325, -0.7875, -0.7425, -0.6975, -0.6525, -0.6075, -0.5625, -0.5175, -0.4725,
-            -0.4275, -0.3825, -0.3375, -0.2925, -0.2475, -0.2025, -0.1575, -0.1125, -0.0675, -0.0225,
+        constexpr std::array<Real_t, 4> trident_coszenith_segment_edges = {
+            -1.0,
+            -0.99,
+            -0.9,
+            0.0,
         };
 
-        constexpr std::array<Real_t, n_cz + 1> trident_coszenith_edges = {
-            -1.0,   -0.99755, -0.995, -0.99245, -0.98835, -0.981, -0.972, -0.963, -0.954, -0.945, -0.936, -0.927,
-            -0.918, -0.909,   -0.891, -0.855,   -0.81,    -0.765, -0.72,  -0.675, -0.63,  -0.585, -0.54,  -0.495,
-            -0.45,  -0.405,   -0.36,  -0.315,   -0.27,    -0.225, -0.18,  -0.135, -0.09,  -0.045, 0.0,
+        constexpr std::array<Index_t, 3> trident_coszenith_segment_bins = {
+            4,
+            10,
+            20,
         };
+
+        constexpr Real_t trident_coszenith_label_tolerance = 1e-4;
+
+        static_assert(trident_coszenith_segment_bins[0] + trident_coszenith_segment_bins[1] +
+                          trident_coszenith_segment_bins[2] ==
+                      n_cz);
 
         void set_trident_binning(ResponseArray& out) {
             for (Index_t i = 0; i <= n_true; ++i) {
@@ -58,11 +65,22 @@ namespace nt {
                 out.reco_energy_gev(i) = energy;
             }
 
-            for (Index_t i = 0; i < n_cz; ++i)
-                out.coszenith(i) = trident_coszenith_centers[i];
+            Index_t bin = 0;
 
-            for (Index_t i = 0; i <= n_cz; ++i)
-                out.coszenith_edges(i) = trident_coszenith_edges[i];
+            for (Index_t segment = 0; segment < trident_coszenith_segment_bins.size(); ++segment) {
+                const Real_t  low  = trident_coszenith_segment_edges[segment];
+                const Real_t  high = trident_coszenith_segment_edges[segment + 1];
+                const Index_t bins = trident_coszenith_segment_bins[segment];
+                const Real_t  step = (high - low) / static_cast<Real_t>(bins);
+
+                for (Index_t i = 0; i < bins; ++i) {
+                    out.coszenith_edges(bin) = low + step * static_cast<Real_t>(i);
+                    out.coszenith(bin)       = low + step * (static_cast<Real_t>(i) + Real_t{0.5});
+                    ++bin;
+                }
+            }
+
+            out.coszenith_edges(n_cz) = trident_coszenith_segment_edges.back();
         }
 
         std::string_view trim(std::string_view s) noexcept {
@@ -160,7 +178,7 @@ namespace nt {
 
                 const Real_t value = parse_prefixed_real(cell, "cos_", file, 1, col + 1);
 
-                if (std::abs(value - out.coszenith(col - 1)) > 1e-12)
+                if (std::abs(value - out.coszenith(col - 1)) > trident_coszenith_label_tolerance)
                     throw std::runtime_error("TRIDENT response coszenith header disagrees with canonical binning in " +
                                              file.string() + " at column " + std::to_string(col + 1));
             });

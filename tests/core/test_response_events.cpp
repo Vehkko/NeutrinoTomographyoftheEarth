@@ -3,7 +3,6 @@
 #include <nt/types.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <exception>
 #include <filesystem>
@@ -28,18 +27,6 @@ namespace {
 
     constexpr Real_t eps = 1e-11;
 
-    constexpr std::array<Real_t, n_cz> trident_coszenith_centers = {
-        -0.9988, -0.9963, -0.9937, -0.9912, -0.9855, -0.9765, -0.9675, -0.9585, -0.9495, -0.9405, -0.9315, -0.9225,
-        -0.9135, -0.9045, -0.8775, -0.8325, -0.7875, -0.7425, -0.6975, -0.6525, -0.6075, -0.5625, -0.5175, -0.4725,
-        -0.4275, -0.3825, -0.3375, -0.2925, -0.2475, -0.2025, -0.1575, -0.1125, -0.0675, -0.0225,
-    };
-
-    constexpr std::array<Real_t, n_cz + 1> trident_coszenith_edges = {
-        -1.0,   -0.99755, -0.995, -0.99245, -0.98835, -0.981, -0.972, -0.963, -0.954, -0.945, -0.936, -0.927,
-        -0.918, -0.909,   -0.891, -0.855,   -0.81,    -0.765, -0.72,  -0.675, -0.63,  -0.585, -0.54,  -0.495,
-        -0.45,  -0.405,   -0.36,  -0.315,   -0.27,    -0.225, -0.18,  -0.135, -0.09,  -0.045, 0.0,
-    };
-
     void require(bool condition, const char* message) {
         if (!condition)
             throw std::runtime_error(message);
@@ -59,7 +46,17 @@ namespace {
 
     Real_t energy_edge(Index_t i) { return std::pow(Real_t{10}, Real_t{3.0} + Real_t{0.1} * static_cast<Real_t>(i)); }
 
-    Real_t coszenith(Index_t z) { return trident_coszenith_centers[z]; }
+    Real_t coszenith_edge(Index_t i) {
+        if (i <= 4)
+            return Real_t{-1.0} + Real_t{0.0025} * static_cast<Real_t>(i);
+
+        if (i <= 14)
+            return Real_t{-0.99} + Real_t{0.009} * static_cast<Real_t>(i - 4);
+
+        return Real_t{-0.9} + Real_t{0.045} * static_cast<Real_t>(i - 14);
+    }
+
+    Real_t coszenith(Index_t z) { return Real_t{0.5} * (coszenith_edge(z) + coszenith_edge(z + 1)); }
 
     Real_t detector_value(Index_t t, Index_t z) {
         return Real_t{1} + Real_t{0.1} * static_cast<Real_t>(t) + Real_t{0.01} * static_cast<Real_t>(z);
@@ -151,7 +148,7 @@ namespace {
             require_close(response.true_energy_gev(t), true_energy(t), "wrong true-energy axis");
 
         for (Index_t z = 0; z < n_cz; ++z)
-            require_close(response.coszenith(z), trident_coszenith_centers[z], "wrong coszenith axis");
+            require_close(response.coszenith(z), coszenith(z), "wrong coszenith axis");
 
         for (Index_t r = 0; r < n_reco; ++r)
             require_close(response.reco_energy_gev(r), true_energy(r), "wrong reconstructed-energy axis");
@@ -160,14 +157,15 @@ namespace {
             require_close(response.true_energy_edges_gev(i), energy_edge(i), "wrong true-energy bin edge");
 
         for (Index_t i = 0; i <= n_cz; ++i)
-            require_close(response.coszenith_edges(i), trident_coszenith_edges[i], "wrong coszenith bin edge");
+            require_close(response.coszenith_edges(i), coszenith_edge(i), "wrong coszenith bin edge");
 
         for (Index_t i = 0; i <= n_reco; ++i)
             require_close(response.reco_energy_edges_gev(i), energy_edge(i), "wrong reconstructed-energy bin edge");
 
-        require(std::abs(response.coszenith(0) -
-                         Real_t{0.5} * (response.coszenith_edges(0) + response.coszenith_edges(1))) > 1e-6,
-                "canonical coszenith center was reconstructed from bin edges");
+        for (Index_t z = 0; z < n_cz; ++z)
+            require_close(response.coszenith(z),
+                          Real_t{0.5} * (response.coszenith_edges(z) + response.coszenith_edges(z + 1)),
+                          "coszenith center is not the bin midpoint");
 
         // Selected asymmetric positions make a transpose hard to hide.
         require_close(response.detector_response(7, 11), detector_value(7, 11),

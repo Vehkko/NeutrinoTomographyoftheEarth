@@ -388,6 +388,7 @@ int main(int argc, char** argv) {
 
         nt::PropagationOptions propagation_options;
         propagation_options.interactions = true;
+        propagation_options.threads      = 24;
 
         nt::EarthPropagator solver(initial_fine, propagation_options);
 
