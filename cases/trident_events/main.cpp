@@ -45,6 +45,16 @@ namespace {
 
     Real_t detector_zenith_deg(Real_t coszenith) { return std::acos(coszenith) * Real_t{180} / pi; }
 
+    Index_t parse_positive_index(std::string_view text, const char* option) {
+        std::size_t consumed = 0;
+        const auto  value    = std::stoull(std::string(text), &consumed);
+
+        if (consumed != text.size() || value == 0)
+            throw std::invalid_argument(std::string(option) + " must be a positive integer");
+
+        return static_cast<Index_t>(value);
+    }
+
     void check_energy_grids(const ResponseArray& response) {
         if (response.true_energy_gev.extent(0) != response.reco_energy_gev.extent(0) ||
             response.true_energy_edges_gev.extent(0) != response.reco_energy_edges_gev.extent(0)) {
@@ -55,19 +65,103 @@ namespace {
             const Real_t a = response.true_energy_gev(i);
             const Real_t b = response.reco_energy_gev(i);
 
-            if (std::abs(a - b) > Real_t{1e-12} * std::abs(a)) {
+            if (std::abs(a - b) > Real_t{1e-12} * std::abs(a))
                 throw std::runtime_error("TRIDENT true-energy and proxy-energy bin centers differ");
-            }
         }
 
         for (Index_t i = 0; i < response.true_energy_edges_gev.extent(0); ++i) {
             const Real_t a = response.true_energy_edges_gev(i);
             const Real_t b = response.reco_energy_edges_gev(i);
 
-            if (std::abs(a - b) > Real_t{1e-12} * std::abs(a)) {
+            if (std::abs(a - b) > Real_t{1e-12} * std::abs(a))
                 throw std::runtime_error("TRIDENT true-energy and proxy-energy bin edges differ");
+        }
+    }
+
+    nda::Array<Real_t, 1> sample_log_energy_bin_midpoints(nda::View<const Real_t, 1> edges, Index_t samples_per_bin) {
+        if (edges.extent(0) < 2)
+            throw std::invalid_argument("Energy bin edges must contain at least two points");
+
+        if (samples_per_bin == 0)
+            throw std::invalid_argument("Energy samples per bin must be positive");
+
+        const Index_t bins = edges.extent(0) - 1;
+
+        nda::Array<Real_t, 1> samples({bins * samples_per_bin});
+
+        for (Index_t bin = 0; bin < bins; ++bin) {
+            const Real_t e0 = edges(bin);
+            const Real_t e1 = edges(bin + 1);
+
+            if (!(e0 > 0.0 && e1 > e0))
+                throw std::invalid_argument("Energy bin edges must be positive and strictly increasing");
+
+            const Real_t loge0 = std::log10(e0);
+            const Real_t loge1 = std::log10(e1);
+
+            for (Index_t k = 0; k < samples_per_bin; ++k) {
+                const Real_t u = (static_cast<Real_t>(k) + Real_t{0.5}) / static_cast<Real_t>(samples_per_bin);
+
+                samples(bin * samples_per_bin + k) = std::pow(Real_t{10}, loge0 + u * (loge1 - loge0));
             }
         }
+
+        return samples;
+    }
+
+    nt::Flux average_flux_to_response_bins(const nt::Flux& fine_flux, const ResponseArray& response,
+                                           Index_t coszenith_samples_per_bin, Index_t energy_samples_per_bin) {
+        if (coszenith_samples_per_bin == 0 || energy_samples_per_bin == 0)
+            throw std::invalid_argument("Samples per bin must be positive");
+
+        const Index_t ncz   = response.coszenith.extent(0);
+        const Index_t ntrue = response.true_energy_gev.extent(0);
+
+        if (fine_flux.n_coszenith() != ncz * coszenith_samples_per_bin)
+            throw std::invalid_argument("Fine Flux coszenith dimension does not match requested refinement");
+
+        if (fine_flux.n_energy() != ntrue * energy_samples_per_bin)
+            throw std::invalid_argument("Fine Flux energy dimension does not match requested refinement");
+
+        nt::Flux coarse(ncz, ntrue);
+
+        auto coarse_z = coarse.coszenith();
+        auto coarse_e = coarse.energy_gev();
+
+        for (Index_t z = 0; z < ncz; ++z)
+            coarse_z(z) = response.coszenith(z);
+
+        for (Index_t e = 0; e < ntrue; ++e)
+            coarse_e(e) = response.true_energy_gev(e);
+
+        const Real_t inv_samples = Real_t{1} / static_cast<Real_t>(coszenith_samples_per_bin * energy_samples_per_bin);
+
+        for (Index_t p = 0; p < 2; ++p) {
+            for (Index_t f = 0; f < 3; ++f) {
+                const auto src = fine_flux.component(static_cast<nt::Particle>(p), static_cast<nt::Flavor>(f));
+
+                auto dst = coarse.component(static_cast<nt::Particle>(p), static_cast<nt::Flavor>(f));
+
+                for (Index_t z = 0; z < ncz; ++z) {
+                    for (Index_t e = 0; e < ntrue; ++e) {
+                        Real_t sum = 0.0;
+
+                        for (Index_t iz = 0; iz < coszenith_samples_per_bin; ++iz) {
+                            const Index_t fine_z = z * coszenith_samples_per_bin + iz;
+
+                            for (Index_t ie = 0; ie < energy_samples_per_bin; ++ie) {
+                                const Index_t fine_e = e * energy_samples_per_bin + ie;
+                                sum += src(fine_z, fine_e);
+                            }
+                        }
+
+                        dst(z, e) = sum * inv_samples;
+                    }
+                }
+            }
+        }
+
+        return coarse;
     }
 
     Real_t total_events(const EventDistribution& events) {
@@ -194,13 +288,25 @@ namespace {
 
 int main(int argc, char** argv) {
     try {
-        bool plot = true;
+        bool    plot                      = true;
+        Index_t energy_samples_per_bin    = 1;
+        Index_t coszenith_samples_per_bin = 1;
 
         for (int i = 1; i < argc; ++i) {
             const std::string_view argument = argv[i];
 
             if (argument == "--no-plot") {
                 plot = false;
+            } else if (argument == "--energy-samples-per-bin") {
+                if (++i >= argc)
+                    throw std::invalid_argument("--energy-samples-per-bin requires a value");
+
+                energy_samples_per_bin = parse_positive_index(argv[i], "--energy-samples-per-bin");
+            } else if (argument == "--coszenith-samples-per-bin") {
+                if (++i >= argc)
+                    throw std::invalid_argument("--coszenith-samples-per-bin requires a value");
+
+                coszenith_samples_per_bin = parse_positive_index(argv[i], "--coszenith-samples-per-bin");
             } else {
                 throw std::invalid_argument("Unknown argument: " + std::string(argument));
             }
@@ -234,28 +340,43 @@ int main(int argc, char** argv) {
 
         print_model(earth);
 
+        const auto fine_coszenith =
+            nt::sample_coszenith_bin_midpoints(response.coszenith_edges.view(), coszenith_samples_per_bin);
+
+        const auto fine_energy =
+            sample_log_energy_bin_midpoints(response.true_energy_edges_gev.view(), energy_samples_per_bin);
+
         std::cout << '\n';
         std::cout << cyan << "Grid" << reset << '\n';
-        std::cout << "  cosZenith bins : " << response.coszenith.extent(0) << '\n';
-        std::cout << "  energy bins    : " << response.true_energy_gev.extent(0) << '\n';
-        std::cout << "  grid points    : " << response.coszenith.extent(0) * response.true_energy_gev.extent(0) << '\n';
+        std::cout << "  cosZenith bins        : " << response.coszenith.extent(0) << '\n';
+        std::cout << "  cosZenith samples/bin : " << coszenith_samples_per_bin << '\n';
+        std::cout << "  cosZenith grid points : " << fine_coszenith.extent(0) << '\n';
+        std::cout << "  energy bins           : " << response.true_energy_gev.extent(0) << '\n';
+        std::cout << "  energy samples/bin    : " << energy_samples_per_bin << '\n';
+        std::cout << "  energy grid points    : " << fine_energy.extent(0) << '\n';
+        std::cout << "  fine grid points      : " << fine_coszenith.extent(0) * fine_energy.extent(0) << '\n';
 
         const Real_t theta_first = detector_zenith_deg(response.coszenith(response.coszenith.extent(0) - 1));
         const Real_t theta_last  = detector_zenith_deg(response.coszenith(0));
 
-        std::cout << "  zenith range   : " << std::fixed << std::setprecision(4) << theta_first << " -- " << theta_last
-                  << " deg\n";
+        std::cout << "  zenith range          : " << std::fixed << std::setprecision(4) << theta_first << " -- "
+                  << theta_last << " deg\n";
 
         std::cout << '\n' << cyan << "Loading atmospheric flux..." << reset << '\n';
 
         const auto daemonflux = nt::load_daemonflux(daemonflux_file, "IceCube");
 
-        // Propagation is physically performed in true neutrino energy.
-        // The current TRIDENT true-energy and proxy-energy grids are identical,
-        // which was checked above.
-        const auto initial = nt::resample_flux(daemonflux, response.coszenith.view(), response.true_energy_gev.view());
+        // Fine quadrature grid:
+        //   - uniform midpoint sampling in cos(zenith);
+        //   - uniform midpoint sampling in log10(E/GeV).
+        //
+        // One sample per bin reproduces the original center-only treatment.
+        const auto initial_fine = nt::resample_flux(daemonflux, fine_coszenith.view(), fine_energy.view());
 
-        std::cout << cyan << "Applying detector response to initial flux..." << reset << '\n';
+        const auto initial =
+            average_flux_to_response_bins(initial_fine, response, coszenith_samples_per_bin, energy_samples_per_bin);
+
+        std::cout << cyan << "Applying detector response to averaged initial flux..." << reset << '\n';
 
         const auto initial_events = nt::predict_events(initial, response);
 
@@ -263,16 +384,19 @@ int main(int argc, char** argv) {
 
         const Real_t initial_total = total_events(initial_events);
 
-        std::cout << cyan << "Propagating through Earth with interactions enabled..." << reset << '\n';
+        std::cout << cyan << "Propagating fine grid through Earth with interactions enabled..." << reset << '\n';
 
         nt::PropagationOptions propagation_options;
         propagation_options.interactions = true;
 
-        nt::EarthPropagator solver(initial, propagation_options);
+        nt::EarthPropagator solver(initial_fine, propagation_options);
 
-        const auto propagated = solver.propagate(initial, prem, earth);
+        const auto propagated_fine = solver.propagate(initial_fine, prem, earth);
 
-        std::cout << cyan << "Applying detector response to propagated flux..." << reset << '\n';
+        const auto propagated =
+            average_flux_to_response_bins(propagated_fine, response, coszenith_samples_per_bin, energy_samples_per_bin);
+
+        std::cout << cyan << "Applying detector response to averaged propagated flux..." << reset << '\n';
 
         const auto propagated_events = nt::predict_events(propagated, response);
 
