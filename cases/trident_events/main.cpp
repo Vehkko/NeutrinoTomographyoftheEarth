@@ -330,6 +330,15 @@ int main(int argc, char** argv) {
 
         check_energy_grids(response);
 
+        // auto response = nt::load_trident_response();
+        //
+        // check_energy_grids(response);
+        //
+        // for (Index_t t = 0; t < response.true_energy_gev.extent(0); ++t) {
+        //     for (Index_t r = 0; r < response.reco_energy_gev.extent(0); ++r)
+        //         response.energy_migration(t, r) = t == r ? Real_t{1} : Real_t{0};
+        // }
+
         const auto prem = nt::load_prem();
 
         const std::array<Real_t, 5> unity = {
