@@ -56,19 +56,16 @@ N_ENERGY = 401
 
 # Project detector zenith convention:
 #
-#   coszenith = -1 : vertically up-going
+#   coszenith = -1 : vertically up-going through the Earth
 #   coszenith =  0 : horizontal
 #
-# DaemonFlux 0.8.2 uses atmospheric/down-going zenith angles in
-# the range 0 -- 90 degrees for the spline tables we use.
+# DaemonFlux IceCube uses the detector zenith angle:
 #
-# Therefore:
+#   theta_DF = acos(coszenith)
 #
-#   theta_DF = acos(-coszenith)
+# therefore:
 #
-# gives
-#
-#   detector coszenith = -1  -> theta_DF = 0 deg
+#   detector coszenith = -1  -> theta_DF = 180 deg
 #   detector coszenith =  0  -> theta_DF = 90 deg
 #
 # The master grid is uniform in detector coszenith.
@@ -79,12 +76,10 @@ COSZENITH_MAX = 0.0
 N_COSZENITH = 2001
 
 
-# These are the locations already used by the project.
-LOCATIONS = (
-    "generic",
-    "IceCube",
-    "Kamioka",
-)
+# The tomography analysis uses the IceCube location, whose
+# detector-centered atmospheric model supports the full
+# up-going zenith range used here.
+LOCATIONS = ("IceCube",)
 
 
 # We explicitly request the calibrated DaemonFlux baseline.
@@ -139,23 +134,20 @@ def detector_coszenith_to_daemonflux_zenith(
     if not np.all(np.isfinite(coszenith)):
         raise ValueError("coszenith contains non-finite values")
 
-    if np.any(coszenith < -1.0) or np.any(coszenith > 0.0):
+    tolerance = 32.0 * np.finfo(np.float64).eps
+
+    if np.any(coszenith < -1.0 - tolerance) or np.any(coszenith > 0.0 + tolerance):
         raise ValueError("up-going detector coszenith must be in [-1, 0]")
 
-    # Guard against tiny floating-point excursions.
+    # Guard arccos() against harmless floating-point excursions
+    # beyond the exact mathematical boundaries.
     argument = np.clip(
-        -coszenith,
+        coszenith,
+        -1.0,
         0.0,
-        1.0,
     )
 
     zenith_deg = np.rad2deg(np.arccos(argument))
-
-    # DaemonFlux requires a sorted ascending angle array.
-    if np.any(np.diff(zenith_deg) < 0.0):
-        raise RuntimeError(
-            "converted DaemonFlux zenith angles are not sorted in ascending order"
-        )
 
     return zenith_deg
 
@@ -172,9 +164,11 @@ def normalize_daemonflux_shape(
     quantity: str,
 ) -> np.ndarray:
     """
-    Return flux in project storage order:
+    Return flux in:
 
-        [coszenith, energy]
+        [zenith, energy]
+
+    order.
 
     DaemonFlux 0.8.2 returns a vectorized multi-angle query in
     [energy, zenith] order. The alternate shape is accepted here
@@ -219,12 +213,34 @@ def evaluate_location(
 
     daemonflux_zenith_deg = detector_coszenith_to_daemonflux_zenith(coszenith)
 
+    # Project coszenith is stored in increasing order:
+    #
+    #     -1 -> 0
+    #
+    # which corresponds to decreasing detector zenith:
+    #
+    #     180 deg -> 90 deg
+    #
+    # DaemonFlux requires vectorized zenith queries in increasing
+    # order, so query in reverse order and reverse the returned
+    # zenith axis back before storing it.
+    daemonflux_query_zenith_deg = np.ascontiguousarray(daemonflux_zenith_deg[::-1])
+
+    if np.any(np.diff(daemonflux_query_zenith_deg) < 0.0):
+        raise RuntimeError("DaemonFlux zenith query is not sorted in ascending order")
+
     print(f"             detector coszenith: [{coszenith[0]:.6f}, {coszenith[-1]:.6f}]")
 
     print(
-        "             DaemonFlux zenith:   "
+        "             detector zenith:    "
         f"[{daemonflux_zenith_deg[0]:.6f}, "
         f"{daemonflux_zenith_deg[-1]:.6f}] deg"
+    )
+
+    print(
+        "             DaemonFlux query:    "
+        f"[{daemonflux_query_zenith_deg[0]:.6f}, "
+        f"{daemonflux_query_zenith_deg[-1]:.6f}] deg"
     )
 
     # --------------------------------------------------------
@@ -236,29 +252,45 @@ def evaluate_location(
 
     raw_numu = model.flux(
         energy_gev,
-        daemonflux_zenith_deg,
-        "total_numu",
+        daemonflux_query_zenith_deg,
+        "numu",
     )
 
     raw_antinumu = model.flux(
         energy_gev,
-        daemonflux_zenith_deg,
-        "total_antinumu",
+        daemonflux_query_zenith_deg,
+        "antinumu",
     )
 
     numu = normalize_daemonflux_shape(
         raw_numu,
         n_coszenith=coszenith.size,
         n_energy=energy_gev.size,
-        quantity="total_numu",
+        quantity="numu",
     )
 
     antinumu = normalize_daemonflux_shape(
         raw_antinumu,
         n_coszenith=coszenith.size,
         n_energy=energy_gev.size,
-        quantity="total_antinumu",
+        quantity="antinumu",
     )
+
+    # DaemonFlux results currently follow the ascending query
+    # order:
+    #
+    #     90 deg -> 180 deg
+    #
+    # Restore the project's increasing coszenith order:
+    #
+    #     -1 -> 0
+    #
+    # corresponding to:
+    #
+    #     180 deg -> 90 deg.
+    numu = np.ascontiguousarray(numu[::-1, :])
+
+    antinumu = np.ascontiguousarray(antinumu[::-1, :])
 
     # --------------------------------------------------------
     # DaemonFlux returns E^3 * Phi.
@@ -391,7 +423,7 @@ def generate(output: Path) -> None:
 
     print(
         "[grid] "
-        f"DaemonFlux zenith range="
+        f"detector zenith range="
         f"[{daemonflux_zenith_deg[0]}, "
         f"{daemonflux_zenith_deg[-1]}] deg"
     )
@@ -437,11 +469,11 @@ def generate(output: Path) -> None:
 
             file.attrs["daemonflux_use_calibration"] = USE_CALIBRATION
 
-            file.attrs["daemonflux_numu_quantity"] = "total_numu"
+            file.attrs["daemonflux_numu_quantity"] = "numu"
 
-            file.attrs["daemonflux_antinumu_quantity"] = "total_antinumu"
+            file.attrs["daemonflux_antinumu_quantity"] = "antinumu"
 
-            file.attrs["includes_prompt_flux"] = True
+            file.attrs["daemonflux_component"] = "conventional"
 
             file.attrs["stored_flux_units"] = "GeV^-1 cm^-2 s^-1 sr^-1"
 
@@ -458,10 +490,10 @@ def generate(output: Path) -> None:
             )
 
             file.attrs["daemonflux_zenith_mapping"] = (
-                "theta_DF_deg = acos(-detector_coszenith) * 180/pi"
+                "theta_DF_deg = acos(detector_coszenith) * 180/pi"
             )
 
-            file.attrs["daemonflux_zenith_range_deg"] = "0 to 90"
+            file.attrs["daemonflux_zenith_range_deg"] = "90 to 180"
 
             # =================================================
             # Axes
@@ -520,14 +552,14 @@ def generate(output: Path) -> None:
                     calibrated_group,
                     "numu",
                     numu,
-                    "total_numu",
+                    "numu",
                 )
 
                 write_flux_dataset(
                     calibrated_group,
                     "antinumu",
                     antinumu,
-                    "total_antinumu",
+                    "antinumu",
                 )
 
             file.flush()
