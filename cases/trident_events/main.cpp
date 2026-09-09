@@ -330,13 +330,24 @@ int main(int argc, char** argv) {
 
         check_energy_grids(response);
 
-        // auto response = nt::load_trident_response();
+        // {  // print cosZ bins
+        //     std::cout << '\n';
+        //     std::cout << cyan << "cosZenith binning" << reset << '\n';
         //
-        // check_energy_grids(response);
+        //     for (Index_t z = 0; z < response.coszenith.extent(0); ++z) {
+        //         std::cout << "  bin " << std::setw(2) << z << "  [" << std::fixed << std::setprecision(8)
+        //                   << response.coszenith_edges(z) << ", " << response.coszenith_edges(z + 1) << "]"
+        //                   << "  center = " << response.coszenith(z) << '\n';
+        //     }
         //
-        // for (Index_t t = 0; t < response.true_energy_gev.extent(0); ++t) {
-        //     for (Index_t r = 0; r < response.reco_energy_gev.extent(0); ++r)
-        //         response.energy_migration(t, r) = t == r ? Real_t{1} : Real_t{0};
+        //     auto response = nt::load_trident_response();
+        //
+        //     check_energy_grids(response);
+        //
+        //     for (Index_t t = 0; t < response.true_energy_gev.extent(0); ++t) {
+        //         for (Index_t r = 0; r < response.reco_energy_gev.extent(0); ++r)
+        //             response.energy_migration(t, r) = t == r ? Real_t{1} : Real_t{0};
+        //     }
         // }
 
         const auto prem = nt::load_prem();
@@ -354,6 +365,37 @@ int main(int argc, char** argv) {
 
         const auto fine_energy =
             sample_log_energy_bin_midpoints(response.true_energy_edges_gev.view(), energy_samples_per_bin);
+
+        // {  // print proxy energy bins
+        //     std::cout << '\n';
+        //     std::cout << cyan << "Fine true-energy binning" << reset << '\n';
+        //
+        //     for (Index_t bin = 0; bin < response.true_energy_gev.extent(0); ++bin) {
+        //         const Real_t loge0 = std::log10(response.true_energy_edges_gev(bin));
+        //         const Real_t loge1 = std::log10(response.true_energy_edges_gev(bin + 1));
+        //
+        //         for (Index_t k = 0; k < energy_samples_per_bin; ++k) {
+        //             const Real_t u0 = static_cast<Real_t>(k) / static_cast<Real_t>(energy_samples_per_bin);
+        //
+        //             const Real_t u1 = static_cast<Real_t>(k + 1) / static_cast<Real_t>(energy_samples_per_bin);
+        //
+        //             const Real_t fine_loge0 = loge0 + u0 * (loge1 - loge0);
+        //             const Real_t fine_loge1 = loge0 + u1 * (loge1 - loge0);
+        //
+        //             const Real_t fine_e0 = std::pow(Real_t{10}, fine_loge0);
+        //             const Real_t fine_e1 = std::pow(Real_t{10}, fine_loge1);
+        //
+        //             const Index_t index  = bin * energy_samples_per_bin + k;
+        //             const Real_t  center = fine_energy(index);
+        //
+        //             std::cout << "  coarse " << std::setw(2) << bin << "  fine " << std::setw(3) << index
+        //                       << "  log10(E/GeV) = [" << std::fixed << std::setprecision(6) << fine_loge0 << ", "
+        //                       << fine_loge1 << "]"
+        //                       << "  center = " << std::log10(center) << "  E = " << std::scientific
+        //                       << std::setprecision(8) << center << " GeV" << '\n';
+        //         }
+        //     }
+        // }
 
         std::cout << '\n';
         std::cout << cyan << "Grid" << reset << '\n';
