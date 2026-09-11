@@ -23,7 +23,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-    using nt::EventDistribution;
     using nt::Index_t;
     using nt::Real_t;
 
@@ -53,28 +52,12 @@ namespace {
 
     constexpr std::uint64_t LOG_EVERY_N_EVAL = 500;
 
-    template <std::size_t N> auto view(const std::array<Real_t, N>& values) {
-        return nda::make_view1d(static_cast<const Real_t*>(values.data()), values.size());
-    }
-
     int mpi_rank_from_environment() {
         for (const char* name : {"PMI_RANK", "PMIX_RANK", "OMPI_COMM_WORLD_RANK"}) {
             if (const char* value = std::getenv(name))
                 return std::atoi(value);
         }
-
         return 0;
-    }
-
-    Real_t total_events(const EventDistribution& events) {
-        Real_t total = 0.0;
-
-        for (Index_t z = 0; z < events.counts.extent(0); ++z) {
-            for (Index_t e = 0; e < events.counts.extent(1); ++e)
-                total += events.counts(z, e);
-        }
-
-        return total;
     }
 
     struct Context {
@@ -97,15 +80,13 @@ namespace {
     };
 
     void loglike(double* cube, int& ndim, int& npars, double& loglike_value, void* context) {
+        (void)ndim;
         (void)npars;
 
         auto&               ctx        = *static_cast<Context*>(context);
         const std::uint64_t evaluation = ++ctx.evaluations;
 
         try {
-            if (ndim != 5)
-                throw std::runtime_error("MultiNest ndim must be 5");
-
             std::array<Real_t, 5> q{};
 
             for (int i = 0; i < 5; ++i) {
@@ -113,8 +94,8 @@ namespace {
                 cube[i] = q[i];
             }
 
-            const auto earth = nt::make_layered_constant_5(*ctx.prem, view(q));
-
+            const auto earth = nt::make_layered_constant_5(
+                *ctx.prem, nda::make_view1d(static_cast<const Real_t*>(q.data()), q.size()));
             const auto propagated = ctx.solver->propagate(*ctx.initial, *ctx.prem, earth);
             const auto prediction = nt::predict_events(propagated, *ctx.response);
 
@@ -133,7 +114,6 @@ namespace {
                             loglike_value = MN_LOG_ZERO;
                             return;
                         }
-
                         value += -nexp + nobs - nobs * std::log(nobs / nexp);
                     } else {
                         value += -nexp;
@@ -202,7 +182,6 @@ int main() {
         const auto response   = nt::load_trident_response();
         const auto prem       = nt::load_prem();
         const auto daemonflux = nt::load_daemonflux(daemonflux_file, "IceCube");
-
         const auto initial = nt::resample_flux(daemonflux, response.coszenith.view(), response.true_energy_gev.view());
 
         nt::PropagationOptions options;
@@ -216,6 +195,11 @@ int main() {
         const auto asimov_data = nt::predict_events(asimov_flux, response);
 
         if (root_process) {
+            Real_t asimov_events = 0.0;
+            for (Index_t z = 0; z < asimov_data.counts.extent(0); ++z)
+                for (Index_t e = 0; e < asimov_data.counts.extent(1); ++e)
+                    asimov_events += asimov_data.counts(z, e);
+
             std::cout << '\n';
             std::cout << "TRIDENT five-layer constant-density MultiNest scan\n";
             std::cout << "------------------------------------------------------------\n";
@@ -226,8 +210,8 @@ int main() {
             std::cout << "Interactions     : enabled\n";
             std::cout << "cosZenith bins   : " << response.coszenith.extent(0) << '\n';
             std::cout << "true-energy bins : " << response.true_energy_gev.extent(0) << '\n';
-            std::cout << "Asimov events    : " << std::fixed << std::setprecision(6)
-                      << total_events(asimov_data) * EXPOSURE_YEARS << '\n';
+            std::cout << "Asimov events    : " << std::fixed << std::setprecision(6) << asimov_events * EXPOSURE_YEARS
+                      << '\n';
 
             std::cout << '\n';
             std::cout << "PREM volume-weighted layer densities\n";
@@ -258,14 +242,12 @@ int main() {
         context.solver   = &solver;
         context.console  = root_process;
 
-        int ndims   = 5;
-        int nPar    = 5;
-        int nClsPar = 5;
-
+        int ndims    = 5;
+        int nPar     = 5;
+        int nClsPar  = 5;
         int pWrap[5] = {0, 0, 0, 0, 0};
 
         std::string multinest_root = raw_output_dir.string();
-
         if (multinest_root.back() != '/')
             multinest_root.push_back('/');
 

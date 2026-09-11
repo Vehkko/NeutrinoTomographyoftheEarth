@@ -26,7 +26,6 @@ namespace {
     using nt::EventDistribution;
     using nt::Index_t;
     using nt::Real_t;
-    using nt::ResponseArray;
 
     namespace fs  = std::filesystem;
     namespace nda = nt::nda;
@@ -39,10 +38,6 @@ namespace {
     constexpr std::string_view cyan  = "\033[1;36m";
     constexpr std::string_view green = "\033[1;32m";
 
-    template <std::size_t N> auto view(const std::array<Real_t, N>& values) {
-        return nda::make_view1d(static_cast<const Real_t*>(values.data()), values.size());
-    }
-
     Real_t detector_zenith_deg(Real_t coszenith) { return std::acos(coszenith) * Real_t{180} / pi; }
 
     Index_t parse_positive_index(std::string_view text, const char* option) {
@@ -51,134 +46,7 @@ namespace {
 
         if (consumed != text.size() || value == 0)
             throw std::invalid_argument(std::string(option) + " must be a positive integer");
-
         return static_cast<Index_t>(value);
-    }
-
-    void check_energy_grids(const ResponseArray& response) {
-        if (response.true_energy_gev.extent(0) != response.reco_energy_gev.extent(0) ||
-            response.true_energy_edges_gev.extent(0) != response.reco_energy_edges_gev.extent(0)) {
-            throw std::runtime_error("TRIDENT true-energy and proxy-energy binning differ");
-        }
-
-        for (Index_t i = 0; i < response.true_energy_gev.extent(0); ++i) {
-            const Real_t a = response.true_energy_gev(i);
-            const Real_t b = response.reco_energy_gev(i);
-
-            if (std::abs(a - b) > Real_t{1e-12} * std::abs(a))
-                throw std::runtime_error("TRIDENT true-energy and proxy-energy bin centers differ");
-        }
-
-        for (Index_t i = 0; i < response.true_energy_edges_gev.extent(0); ++i) {
-            const Real_t a = response.true_energy_edges_gev(i);
-            const Real_t b = response.reco_energy_edges_gev(i);
-
-            if (std::abs(a - b) > Real_t{1e-12} * std::abs(a))
-                throw std::runtime_error("TRIDENT true-energy and proxy-energy bin edges differ");
-        }
-    }
-
-    nda::Array<Real_t, 1> sample_log_energy_bin_midpoints(nda::View<const Real_t, 1> edges, Index_t samples_per_bin) {
-        if (edges.extent(0) < 2)
-            throw std::invalid_argument("Energy bin edges must contain at least two points");
-
-        if (samples_per_bin == 0)
-            throw std::invalid_argument("Energy samples per bin must be positive");
-
-        const Index_t bins = edges.extent(0) - 1;
-
-        nda::Array<Real_t, 1> samples({bins * samples_per_bin});
-
-        for (Index_t bin = 0; bin < bins; ++bin) {
-            const Real_t e0 = edges(bin);
-            const Real_t e1 = edges(bin + 1);
-
-            if (!(e0 > 0.0 && e1 > e0))
-                throw std::invalid_argument("Energy bin edges must be positive and strictly increasing");
-
-            const Real_t loge0 = std::log10(e0);
-            const Real_t loge1 = std::log10(e1);
-
-            for (Index_t k = 0; k < samples_per_bin; ++k) {
-                const Real_t u = (static_cast<Real_t>(k) + Real_t{0.5}) / static_cast<Real_t>(samples_per_bin);
-
-                samples(bin * samples_per_bin + k) = std::pow(Real_t{10}, loge0 + u * (loge1 - loge0));
-            }
-        }
-
-        return samples;
-    }
-
-    nt::Flux average_flux_to_response_bins(const nt::Flux& fine_flux, const ResponseArray& response,
-                                           Index_t coszenith_samples_per_bin, Index_t energy_samples_per_bin) {
-        if (coszenith_samples_per_bin == 0 || energy_samples_per_bin == 0)
-            throw std::invalid_argument("Samples per bin must be positive");
-
-        const Index_t ncz   = response.coszenith.extent(0);
-        const Index_t ntrue = response.true_energy_gev.extent(0);
-
-        if (fine_flux.n_coszenith() != ncz * coszenith_samples_per_bin)
-            throw std::invalid_argument("Fine Flux coszenith dimension does not match requested refinement");
-
-        if (fine_flux.n_energy() != ntrue * energy_samples_per_bin)
-            throw std::invalid_argument("Fine Flux energy dimension does not match requested refinement");
-
-        nt::Flux coarse(ncz, ntrue);
-
-        auto coarse_z = coarse.coszenith();
-        auto coarse_e = coarse.energy_gev();
-
-        for (Index_t z = 0; z < ncz; ++z)
-            coarse_z(z) = response.coszenith(z);
-
-        for (Index_t e = 0; e < ntrue; ++e)
-            coarse_e(e) = response.true_energy_gev(e);
-
-        const Real_t inv_samples = Real_t{1} / static_cast<Real_t>(coszenith_samples_per_bin * energy_samples_per_bin);
-
-        for (Index_t p = 0; p < 2; ++p) {
-            for (Index_t f = 0; f < 3; ++f) {
-                const auto src = fine_flux.component(static_cast<nt::Particle>(p), static_cast<nt::Flavor>(f));
-
-                auto dst = coarse.component(static_cast<nt::Particle>(p), static_cast<nt::Flavor>(f));
-
-                for (Index_t z = 0; z < ncz; ++z) {
-                    for (Index_t e = 0; e < ntrue; ++e) {
-                        Real_t sum = 0.0;
-
-                        for (Index_t iz = 0; iz < coszenith_samples_per_bin; ++iz) {
-                            const Index_t fine_z = z * coszenith_samples_per_bin + iz;
-
-                            for (Index_t ie = 0; ie < energy_samples_per_bin; ++ie) {
-                                const Index_t fine_e = e * energy_samples_per_bin + ie;
-                                sum += src(fine_z, fine_e);
-                            }
-                        }
-
-                        dst(z, e) = sum * inv_samples;
-                    }
-                }
-            }
-        }
-
-        return coarse;
-    }
-
-    Real_t total_events(const EventDistribution& events) {
-        Real_t total = 0.0;
-
-        for (Index_t z = 0; z < events.counts.extent(0); ++z) {
-            for (Index_t e = 0; e < events.counts.extent(1); ++e) {
-                const Real_t value = events.counts(z, e);
-
-                if (!std::isfinite(value) || value < 0.0)
-                    throw std::runtime_error("Event distribution contains a non-finite or negative value");
-
-                total += value;
-            }
-        }
-
-        return total;
     }
 
     void write_events_csv(const fs::path& filename, const EventDistribution& events) {
@@ -213,9 +81,6 @@ namespace {
     }
 
     void run_process(const std::vector<std::string>& arguments) {
-        if (arguments.empty())
-            throw std::runtime_error("Cannot run an empty command");
-
         const pid_t pid = fork();
 
         if (pid < 0)
@@ -229,7 +94,6 @@ namespace {
                 argv.push_back(const_cast<char*>(argument.c_str()));
 
             argv.push_back(nullptr);
-
             execv(arguments.front().c_str(), argv.data());
             _exit(127);
         }
@@ -238,7 +102,6 @@ namespace {
 
         if (waitpid(pid, &status, 0) < 0)
             throw std::runtime_error("waitpid() failed");
-
         if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
             throw std::runtime_error("Plotting process failed");
     }
@@ -249,16 +112,10 @@ namespace {
 
         if (!fs::exists(python))
             throw std::runtime_error("Project Python not found: " + python.string());
-
         if (!fs::exists(script))
             throw std::runtime_error("Plotting script not found: " + script.string());
 
-        run_process({
-            python.string(),
-            script.string(),
-            csv_file.string(),
-            figure_dir.string(),
-        });
+        run_process({python.string(), script.string(), csv_file.string(), figure_dir.string()});
     }
 
     void print_model(const nt::LayeredEarth& earth) {
@@ -279,7 +136,6 @@ namespace {
             std::cout << "  L" << i + 1 << "  " << std::fixed << std::setprecision(0) << std::setw(4) << inner << " -- "
                       << std::setw(4) << earth.outer_radius_km[i] << " km"
                       << "    rho = " << std::setprecision(6) << earth.density_g_cm3[i] << " g/cm^3\n";
-
             inner = earth.outer_radius_km[i];
         }
     }
@@ -288,9 +144,10 @@ namespace {
 
 int main(int argc, char** argv) {
     try {
-        bool    plot                      = true;
-        Index_t energy_samples_per_bin    = 1;
-        Index_t coszenith_samples_per_bin = 1;
+        bool                 plot                      = true;
+        Index_t              energy_samples_per_bin    = 1;
+        Index_t              coszenith_samples_per_bin = 1;
+        nt::FluxRebinOptions rebin_options{.interpolate_coszenith = false, .interpolate_energy = true};
 
         for (int i = 1; i < argc; ++i) {
             const std::string_view argument = argv[i];
@@ -300,13 +157,15 @@ int main(int argc, char** argv) {
             } else if (argument == "--energy-samples-per-bin") {
                 if (++i >= argc)
                     throw std::invalid_argument("--energy-samples-per-bin requires a value");
-
                 energy_samples_per_bin = parse_positive_index(argv[i], "--energy-samples-per-bin");
             } else if (argument == "--coszenith-samples-per-bin") {
                 if (++i >= argc)
                     throw std::invalid_argument("--coszenith-samples-per-bin requires a value");
-
                 coszenith_samples_per_bin = parse_positive_index(argv[i], "--coszenith-samples-per-bin");
+            } else if (argument == "--interpolate-energy") {
+                rebin_options.interpolate_energy = true;
+            } else if (argument == "--interpolate-coszenith") {
+                rebin_options.interpolate_coszenith = true;
             } else {
                 throw std::invalid_argument("Unknown argument: " + std::string(argument));
             }
@@ -327,111 +186,57 @@ int main(int argc, char** argv) {
         fs::create_directories(figure_dir);
 
         const auto response = nt::load_trident_response();
-
-        check_energy_grids(response);
-
-        // {  // print cosZ bins
-        //     std::cout << '\n';
-        //     std::cout << cyan << "cosZenith binning" << reset << '\n';
-        //
-        //     for (Index_t z = 0; z < response.coszenith.extent(0); ++z) {
-        //         std::cout << "  bin " << std::setw(2) << z << "  [" << std::fixed << std::setprecision(8)
-        //                   << response.coszenith_edges(z) << ", " << response.coszenith_edges(z + 1) << "]"
-        //                   << "  center = " << response.coszenith(z) << '\n';
-        //     }
-        //
-        //     auto response = nt::load_trident_response();
-        //
-        //     check_energy_grids(response);
-        //
-        //     for (Index_t t = 0; t < response.true_energy_gev.extent(0); ++t) {
-        //         for (Index_t r = 0; r < response.reco_energy_gev.extent(0); ++r)
-        //             response.energy_migration(t, r) = t == r ? Real_t{1} : Real_t{0};
-        //     }
-        // }
-
-        const auto prem = nt::load_prem();
+        const auto prem     = nt::load_prem();
 
         const std::array<Real_t, 5> unity = {
             1.0, 1.0, 1.0, 1.0, 1.0,
         };
 
-        const auto earth = nt::make_layered_constant_5(prem, view(unity));
+        const auto earth =
+            nt::make_layered_constant_5(prem, nda::make_view1d(static_cast<const Real_t*>(unity.data()), unity.size()));
 
         print_model(earth);
 
-        { // debug density and Ye around the core-mantle boundary
-            constexpr Real_t earth_radius_km = 6371.0;
-
-            std::vector<double> prem_x(prem.radius_fraction.data(),
-                                       prem.radius_fraction.data() + prem.radius_fraction.extent(0));
-
-            std::vector<double> prem_ye(prem.ye.data(), prem.ye.data() + prem.ye.extent(0));
-
-            nusquids::AkimaSpline ye_interp(prem_x, prem_ye);
-
-            const std::array<Real_t, 18> samples = {
-                0.519465, 0.522810, 0.526155, 0.529500, 0.532845, 0.536190, 0.539535, 0.542880, 0.546225,
-                0.549541, 0.552857, 0.556173, 0.559490, 0.562806, 0.566122, 0.569438, 0.572754, 0.576070,
-            };
-
-            std::cout << '\n';
-            std::cout << std::fixed << std::setprecision(6);
-
-            for (const Real_t x : samples) {
-                const Real_t radius_km = x * earth_radius_km;
-                const Real_t rho       = nt::density_g_cm3(earth, radius_km);
-                const Real_t ye        = ye_interp(x);
-
-                std::cout << x << ' ' << rho << ' ' << ye << '\n';
-            }
-        }
+        // { // debug density and Ye around the core-mantle boundary
+        //     constexpr Real_t earth_radius_km = 6371.0;
+        //
+        //     std::vector<double>   prem_x(prem.radius_fraction.data(),
+        //                                  prem.radius_fraction.data() + prem.radius_fraction.extent(0));
+        //     std::vector<double>   prem_ye(prem.ye.data(), prem.ye.data() + prem.ye.extent(0));
+        //     nusquids::AkimaSpline ye_interp(prem_x, prem_ye);
+        //
+        //     const std::array<Real_t, 18> samples = {
+        //         0.519465, 0.522810, 0.526155, 0.529500, 0.532845, 0.536190, 0.539535, 0.542880, 0.546225,
+        //         0.549541, 0.552857, 0.556173, 0.559490, 0.562806, 0.566122, 0.569438, 0.572754, 0.576070,
+        //     };
+        //
+        //     std::cout << '\n' << std::fixed << std::setprecision(6);
+        //
+        //     for (const Real_t x : samples) {
+        //         const Real_t radius_km = x * earth_radius_km;
+        //         const Real_t rho       = nt::density_g_cm3(earth, radius_km);
+        //         const Real_t ye        = ye_interp(x);
+        //         std::cout << x << ' ' << rho << ' ' << ye << '\n';
+        //     }
+        // }
 
         const auto fine_coszenith =
             nt::sample_coszenith_bin_midpoints(response.coszenith_edges.view(), coszenith_samples_per_bin);
-
         const auto fine_energy =
-            sample_log_energy_bin_midpoints(response.true_energy_edges_gev.view(), energy_samples_per_bin);
-
-        // {  // print proxy energy bins
-        //     std::cout << '\n';
-        //     std::cout << cyan << "Fine true-energy binning" << reset << '\n';
-        //
-        //     for (Index_t bin = 0; bin < response.true_energy_gev.extent(0); ++bin) {
-        //         const Real_t loge0 = std::log10(response.true_energy_edges_gev(bin));
-        //         const Real_t loge1 = std::log10(response.true_energy_edges_gev(bin + 1));
-        //
-        //         for (Index_t k = 0; k < energy_samples_per_bin; ++k) {
-        //             const Real_t u0 = static_cast<Real_t>(k) / static_cast<Real_t>(energy_samples_per_bin);
-        //
-        //             const Real_t u1 = static_cast<Real_t>(k + 1) / static_cast<Real_t>(energy_samples_per_bin);
-        //
-        //             const Real_t fine_loge0 = loge0 + u0 * (loge1 - loge0);
-        //             const Real_t fine_loge1 = loge0 + u1 * (loge1 - loge0);
-        //
-        //             const Real_t fine_e0 = std::pow(Real_t{10}, fine_loge0);
-        //             const Real_t fine_e1 = std::pow(Real_t{10}, fine_loge1);
-        //
-        //             const Index_t index  = bin * energy_samples_per_bin + k;
-        //             const Real_t  center = fine_energy(index);
-        //
-        //             std::cout << "  coarse " << std::setw(2) << bin << "  fine " << std::setw(3) << index
-        //                       << "  log10(E/GeV) = [" << std::fixed << std::setprecision(6) << fine_loge0 << ", "
-        //                       << fine_loge1 << "]"
-        //                       << "  center = " << std::log10(center) << "  E = " << std::scientific
-        //                       << std::setprecision(8) << center << " GeV" << '\n';
-        //         }
-        //     }
-        // }
+            nt::sample_log_energy_bin_midpoints(response.true_energy_edges_gev.view(), energy_samples_per_bin);
 
         std::cout << '\n';
         std::cout << cyan << "Grid" << reset << '\n';
         std::cout << "  cosZenith bins        : " << response.coszenith.extent(0) << '\n';
         std::cout << "  cosZenith samples/bin : " << coszenith_samples_per_bin << '\n';
         std::cout << "  cosZenith grid points : " << fine_coszenith.extent(0) << '\n';
+        std::cout << "  cosZenith rebin       : " << (rebin_options.interpolate_coszenith ? "interpolate" : "average")
+                  << '\n';
         std::cout << "  energy bins           : " << response.true_energy_gev.extent(0) << '\n';
         std::cout << "  energy samples/bin    : " << energy_samples_per_bin << '\n';
         std::cout << "  energy grid points    : " << fine_energy.extent(0) << '\n';
+        std::cout << "  energy rebin          : " << (rebin_options.interpolate_energy ? "interpolate" : "average")
+                  << '\n';
         std::cout << "  fine grid points      : " << fine_coszenith.extent(0) * fine_energy.extent(0) << '\n';
 
         const Real_t theta_first = detector_zenith_deg(response.coszenith(response.coszenith.extent(0) - 1));
@@ -444,23 +249,22 @@ int main(int argc, char** argv) {
 
         const auto daemonflux = nt::load_daemonflux(daemonflux_file, "IceCube");
 
-        // Fine quadrature grid:
+        // Fine propagation grid:
         //   - uniform midpoint sampling in cos(zenith);
         //   - uniform midpoint sampling in log10(E/GeV).
-        //
-        // One sample per bin reproduces the original center-only treatment.
         const auto initial_fine = nt::resample_flux(daemonflux, fine_coszenith.view(), fine_energy.view());
+        const auto initial = nt::rebin_flux(initial_fine, response.coszenith.view(), response.true_energy_gev.view(),
+                                            coszenith_samples_per_bin, energy_samples_per_bin, rebin_options);
 
-        const auto initial =
-            average_flux_to_response_bins(initial_fine, response, coszenith_samples_per_bin, energy_samples_per_bin);
-
-        std::cout << cyan << "Applying detector response to averaged initial flux..." << reset << '\n';
+        std::cout << cyan << "Applying detector response to rebinned initial flux..." << reset << '\n';
 
         const auto initial_events = nt::predict_events(initial, response);
-
         write_events_csv(initial_csv_file, initial_events);
 
-        const Real_t initial_total = total_events(initial_events);
+        Real_t initial_total = 0.0;
+        for (Index_t z = 0; z < initial_events.counts.extent(0); ++z)
+            for (Index_t e = 0; e < initial_events.counts.extent(1); ++e)
+                initial_total += initial_events.counts(z, e);
 
         std::cout << cyan << "Propagating fine grid through Earth with interactions enabled..." << reset << '\n';
 
@@ -469,29 +273,11 @@ int main(int argc, char** argv) {
         propagation_options.threads      = 24;
 
         nt::EarthPropagator solver(initial_fine, propagation_options);
-
-        // { // print initial flux
-        //     const auto numu     = initial_fine.numu();
-        //     const auto antinumu = initial_fine.antinumu();
-        //
-        //     std::cout << std::scientific << std::setprecision(17) << "initial numu[0][0]     = " << numu(0, 0) <<
-        //     '\n'
-        //               << "initial numu[4][0]     = " << numu(4, 0) << '\n'
-        //               << "initial antinumu[0][0] = " << antinumu(0, 0) << '\n'
-        //               << "initial antinumu[4][0] = " << antinumu(4, 0) << '\n';
-        // }
-
-        const auto propagated_fine = solver.propagate(initial_fine, prem, earth);
+        const auto          propagated_fine = solver.propagate(initial_fine, prem, earth);
 
         // { // debug: save propagated nu_mu + anti-nu_mu flux matrix to project root
-        //     if (propagated_fine.n_coszenith() != 34 || propagated_fine.n_energy() != 100) {
-        //         throw std::runtime_error("Debug flux matrix is not 34x100; run with "
-        //                                  "--coszenith-samples-per-bin 1 --energy-samples-per-bin 5");
-        //     }
-        //
         //     const auto numu     = propagated_fine.numu();
         //     const auto antinumu = propagated_fine.antinumu();
-        //
         //     std::ofstream file("propagated_numu_total_34x100.csv");
         //
         //     if (!file)
@@ -503,66 +289,45 @@ int main(int argc, char** argv) {
         //         for (Index_t e = 0; e < propagated_fine.n_energy(); ++e) {
         //             if (e != 0)
         //                 file << ',';
-        //
         //             file << numu(z, e) + antinumu(z, e);
         //         }
-        //
         //         file << '\n';
         //     }
-        //
-        //     std::cout << "Saved propagated_numu_total_34x100.csv\n";
-        // }
-
-        // { // print propagated flux
-        //     const auto propagated_numu     = propagated_fine.numu();
-        //     const auto propagated_antinumu = propagated_fine.antinumu();
-        //     std::cout << std::scientific << std::setprecision(17)
-        //               << "propagated numu[0][0]     = " << propagated_numu(0, 0) << '\n'
-        //               << "propagated numu[4][0]     = " << propagated_numu(4, 0) << '\n'
-        //               << "propagated antinumu[0][0] = " << propagated_antinumu(0, 0) << '\n'
-        //               << "propagated antinumu[4][0] = " << propagated_antinumu(4, 0) << '\n';
-        //
-        //     const auto propagated = average_flux_to_response_bins(propagated_fine, response,
-        //     coszenith_samples_per_bin,
-        //                                                           energy_samples_per_bin);
         // }
 
         const auto propagated =
-            average_flux_to_response_bins(propagated_fine, response, coszenith_samples_per_bin, energy_samples_per_bin);
+            nt::rebin_flux(propagated_fine, response.coszenith.view(), response.true_energy_gev.view(),
+                           coszenith_samples_per_bin, energy_samples_per_bin, rebin_options);
 
-        { // debug: save 34x20 propagated nu_mu + anti-nu_mu flux
-            if (propagated.n_coszenith() != 34 || propagated.n_energy() != 20)
-                throw std::runtime_error("Propagated flux matrix is not 34x20");
+        // { // debug: save 34x20 propagated nu_mu + anti-nu_mu flux
+        //     const auto    numu     = propagated.numu();
+        //     const auto    antinumu = propagated.antinumu();
+        //     std::ofstream file("propagated_flux_34x20.csv");
+        //
+        //     if (!file)
+        //         throw std::runtime_error("Cannot create propagated_flux_34x20.csv");
+        //
+        //     file << std::scientific << std::setprecision(17);
+        //
+        //     for (Index_t z = 0; z < propagated.n_coszenith(); ++z) {
+        //         for (Index_t e = 0; e < propagated.n_energy(); ++e) {
+        //             if (e != 0)
+        //                 file << ',';
+        //             file << numu(z, e) + antinumu(z, e);
+        //         }
+        //         file << '\n';
+        //     }
+        // }
 
-            const auto numu     = propagated.numu();
-            const auto antinumu = propagated.antinumu();
-
-            std::ofstream file("propagated_flux_34x20.csv");
-
-            if (!file)
-                throw std::runtime_error("Cannot create propagated_flux_34x20.csv");
-
-            file << std::scientific << std::setprecision(17);
-
-            for (Index_t z = 0; z < propagated.n_coszenith(); ++z) {
-                for (Index_t e = 0; e < propagated.n_energy(); ++e) {
-                    if (e != 0)
-                        file << ',';
-
-                    file << numu(z, e) + antinumu(z, e);
-                }
-
-                file << '\n';
-            }
-        }
-
-        std::cout << cyan << "Applying detector response to averaged propagated flux..." << reset << '\n';
+        std::cout << cyan << "Applying detector response to rebinned propagated flux..." << reset << '\n';
 
         const auto propagated_events = nt::predict_events(propagated, response);
-
         write_events_csv(propagated_csv_file, propagated_events);
 
-        const Real_t propagated_total = total_events(propagated_events);
+        Real_t propagated_total = 0.0;
+        for (Index_t z = 0; z < propagated_events.counts.extent(0); ++z)
+            for (Index_t e = 0; e < propagated_events.counts.extent(1); ++e)
+                propagated_total += propagated_events.counts(z, e);
 
         std::cout << '\n';
         std::cout << dim << "────────────────────────────────────────────────────────────" << reset << '\n';

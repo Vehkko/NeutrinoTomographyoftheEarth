@@ -38,9 +38,9 @@ namespace nt {
     //   t = true-energy bin
     //   r = reconstructed-energy bin
     //
-    // The Flux grid must already match the TRIDENT response grid. This is
-    // intentional: interpolation belongs before propagation / event evaluation,
-    // not inside this hot path.
+    // The Flux grid must already match the TRIDENT response grid. Grid sampling,
+    // resampling and fine-to-coarse rebinning are handled by the Flux API before
+    // event evaluation, not inside this hot path.
     //
     // No intermediate resampled Flux or 3D response array is allocated.
     [[nodiscard]] EventDistribution predict_events(const Flux& flux, const ResponseArray& response);

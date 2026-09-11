@@ -9,7 +9,6 @@
 #include <cassert>
 #include <cmath>
 #include <memory>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -66,13 +65,10 @@ namespace nt {
             // where s is distance from the start of the chord and L is the
             // complete surface-to-surface path length.
             Real_t radius_from_track_km(const nusquids::GenericTrack& track) const noexcept {
-                const Real_t s = (track.GetX() - track.GetInitialX()) / units.km;
-                const Real_t L = (track.GetFinalX() - track.GetInitialX()) / units.km;
-
+                const Real_t s  = (track.GetX() - track.GetInitialX()) / units.km;
+                const Real_t L  = (track.GetFinalX() - track.GetInitialX()) / units.km;
                 const Real_t r2 = radius * radius + s * s - L * s;
-
-                const Real_t r = std::sqrt(std::max(Real_t{0}, r2));
-
+                const Real_t r  = std::sqrt(std::max(Real_t{0}, r2));
                 return std::min(r, radius);
             }
 
@@ -81,10 +77,8 @@ namespace nt {
 
                 if (x <= x_radius_min)
                     return x_rho_min;
-
                 if (x >= x_radius_max)
                     return x_rho_max;
-
                 return inter_density(x);
             }
         };
@@ -97,7 +91,6 @@ namespace nt {
             double density(const nusquids::GenericTrack& track) const override {
                 const Real_t  r = radius_from_track_km(track);
                 const Index_t i = layer_index(earth_.layers, earth_.outer_radius_km, r);
-
                 return earth_.density_g_cm3[i];
             }
 
@@ -116,7 +109,6 @@ namespace nt {
             double density(const nusquids::GenericTrack& track) const override {
                 const Real_t  r = radius_from_track_km(track);
                 const Index_t i = layer_index(earth_.layers, earth_.outer_radius_km, r);
-
                 return prem_density_at_radius(r) * earth_.density_factor[i];
             }
 
@@ -136,7 +128,6 @@ namespace nt {
 
                 if (perturbation_.mode == PerturbationMode::relative)
                     return rho * (Real_t{1} + perturbation_.amplitude * w);
-
                 return rho + perturbation_.amplitude * w;
             }
 
@@ -144,22 +135,12 @@ namespace nt {
             DensityPerturbation perturbation_;
         };
 
-        std::shared_ptr<nusquids::EarthAtm> make_prem_body(const EarthProfile& prem) {
-            auto earth = std::make_shared<nusquids::EarthAtm>(to_vector(prem.radius_fraction),
-                                                              to_vector(prem.density_g_cm3), to_vector(prem.ye));
-
-            earth->SetAtmosphereHeight(0.0);
-            return earth;
-        }
-
         Flux::Axis make_energy_ev(const Flux& flux) {
             Flux::Axis energy_ev({flux.n_energy()});
-
             const auto energy_gev = flux.energy_gev();
 
             for (Index_t e = 0; e < flux.n_energy(); ++e)
                 energy_ev[e] = energy_gev(e) * units.GeV;
-
             return energy_ev;
         }
 
@@ -178,40 +159,17 @@ namespace nt {
             nus.Set_GSL_step(gsl_odeiv2_step_rk4);
             nus.Set_rel_error(1e-6);
             nus.Set_abs_error(1e-6);
-
             nus.Set_EvalThreads(static_cast<unsigned int>(options.threads));
         }
 
     } // namespace
 
     EarthPropagator::EarthPropagator(const Flux& grid, const PropagationOptions& options)
-        : coszenith_(grid.native_coszenith()), energy_gev_(grid.native_energy_gev()),
-          nus_(coszenith_, make_energy_ev(grid), 3, nusquids::both, options.interactions) {
+        : nus_(grid.native_coszenith(), make_energy_ev(grid), 3, nusquids::both, options.interactions) {
         configure_solver(nus_, options);
     }
 
-    void EarthPropagator::validate_grid(const Flux& flux) const {
-        if (flux.n_coszenith() != coszenith_.extent(0) || flux.n_energy() != energy_gev_.extent(0)) {
-            throw std::invalid_argument("EarthPropagator flux dimensions do not match the construction grid");
-        }
-
-        const auto& coszenith = flux.native_coszenith();
-        const auto& energy    = flux.native_energy_gev();
-
-        for (Index_t z = 0; z < flux.n_coszenith(); ++z) {
-            if (coszenith[z] != coszenith_[z])
-                throw std::invalid_argument("EarthPropagator coszenith grid does not match the construction grid");
-        }
-
-        for (Index_t e = 0; e < flux.n_energy(); ++e) {
-            if (energy[e] != energy_gev_[e])
-                throw std::invalid_argument("EarthPropagator energy grid does not match the construction grid");
-        }
-    }
-
     Flux EarthPropagator::propagate_with_body(const Flux& initial, std::shared_ptr<nusquids::EarthAtm> earth) {
-        validate_grid(initial);
-
         nus_.Set_EarthModel(std::move(earth));
 
         // Flux already has nuSQuIDS' required native layout:
@@ -220,20 +178,17 @@ namespace nt {
         //
         // No project-side 4D repacking is performed.
         nus_.Set_initial_state(initial.native_state(), nusquids::flavor);
-
         nus_.EvolveState();
 
         Flux result(initial.n_coszenith(), initial.n_energy());
 
-        auto result_z = result.coszenith();
-        auto result_e = result.energy_gev();
-
+        auto       result_z  = result.coszenith();
+        auto       result_e  = result.energy_gev();
         const auto initial_z = initial.coszenith();
         const auto initial_e = initial.energy_gev();
 
         for (Index_t z = 0; z < initial.n_coszenith(); ++z)
             result_z(z) = initial_z(z);
-
         for (Index_t e = 0; e < initial.n_energy(); ++e)
             result_e(e) = initial_e(e);
 
@@ -259,7 +214,10 @@ namespace nt {
     }
 
     Flux EarthPropagator::propagate(const Flux& initial, const EarthProfile& prem) {
-        return propagate_with_body(initial, make_prem_body(prem));
+        auto earth = std::make_shared<nusquids::EarthAtm>(to_vector(prem.radius_fraction),
+                                                          to_vector(prem.density_g_cm3), to_vector(prem.ye));
+        earth->SetAtmosphereHeight(0.0);
+        return propagate_with_body(initial, std::move(earth));
     }
 
     Flux EarthPropagator::propagate(const Flux& initial, const EarthProfile& prem, const LayeredEarth& earth) {

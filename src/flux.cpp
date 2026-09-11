@@ -14,13 +14,11 @@
 #include <cmath>
 #include <cstddef>
 #include <filesystem>
-#include <limits>
 #include <memory>
 #include <nuSQuIDS/marray.h>
 #include <stdexcept>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <vector>
 
 namespace nt {
@@ -76,20 +74,6 @@ namespace nt {
             throw std::runtime_error("HDF5: " + message + ": " + object);
         }
 
-        hid_t hdf5_real_type() noexcept {
-            if constexpr (std::is_same_v<Real_t, float>)
-                return H5T_NATIVE_FLOAT;
-            else if constexpr (std::is_same_v<Real_t, double>)
-                return H5T_NATIVE_DOUBLE;
-            else if constexpr (std::is_same_v<Real_t, long double>)
-                return H5T_NATIVE_LDOUBLE;
-            else {
-                static_assert(std::is_same_v<Real_t, float> || std::is_same_v<Real_t, double> ||
-                                  std::is_same_v<Real_t, long double>,
-                              "Unsupported Real_t");
-            }
-        }
-
         H5Handle open_dataset(hid_t file, const std::string& path) {
             const hid_t id = H5Dopen2(file, path.c_str(), H5P_DEFAULT);
             if (id < 0)
@@ -112,43 +96,13 @@ namespace nt {
             return shape;
         }
 
-        Index_t to_index(hsize_t n, const std::string& path) {
-            if (n > static_cast<hsize_t>(std::numeric_limits<Index_t>::max()))
-                throw std::overflow_error("HDF5 dimension exceeds Index_t: " + path);
-            return static_cast<Index_t>(n);
-        }
-
-        Index_t read_axis_size(hid_t file, const std::string& path) {
-            auto dataset = open_dataset(file, path);
-            return to_index(dataset_shape<1>(dataset.get(), path)[0], path);
-        }
-
-        void read_axis(hid_t file, const std::string& path, nda::View<Real_t, 1> dst) {
-            auto       dataset = open_dataset(file, path);
-            const auto shape   = dataset_shape<1>(dataset.get(), path);
-
-            if (shape[0] != static_cast<hsize_t>(dst.extent(0)))
-                hdf5_error("axis size does not match Flux", path);
-
-            if (H5Dread(dataset.get(), hdf5_real_type(), H5S_ALL, H5S_ALL, H5P_DEFAULT, dst.data()) < 0)
-                hdf5_error("cannot read dataset", path);
-        }
-
         // Read a compact HDF5 [coszenith, energy] dataset directly into one
         // [particle, flavor] slice of the final 4D state.
         void read_flux_component(hid_t file, const std::string& path, Flux& flux, Particle particle, Flavor flavor) {
-            auto       dataset = open_dataset(file, path);
-            const auto shape   = dataset_shape<2>(dataset.get(), path);
+            auto dataset = open_dataset(file, path);
 
             const Index_t ncz = flux.n_coszenith();
             const Index_t ne  = flux.n_energy();
-            if (shape[0] != static_cast<hsize_t>(ncz) || shape[1] != static_cast<hsize_t>(ne))
-                hdf5_error("flux shape does not match axes", path);
-
-            const hid_t file_space_id = H5Dget_space(dataset.get());
-            if (file_space_id < 0)
-                hdf5_error("cannot get file dataspace", path);
-            H5Handle file_space{file_space_id, H5Sclose};
 
             const hsize_t memory_dims[4]  = {ncz, ne, particle_count, flavor_count};
             const hid_t   memory_space_id = H5Screate_simple(4, memory_dims, nullptr);
@@ -162,7 +116,7 @@ namespace nt {
             if (H5Sselect_hyperslab(memory_space.get(), H5S_SELECT_SET, start, nullptr, count, nullptr) < 0)
                 hdf5_error("cannot select memory hyperslab", path);
 
-            if (H5Dread(dataset.get(), hdf5_real_type(), memory_space.get(), file_space.get(), H5P_DEFAULT,
+            if (H5Dread(dataset.get(), H5T_NATIVE_DOUBLE, memory_space.get(), H5S_ALL, H5P_DEFAULT,
                         marray_data(flux.native_state())) < 0)
                 hdf5_error("cannot read flux dataset", path);
         }
@@ -178,19 +132,11 @@ namespace nt {
             Real_t  w1;
         };
 
-        void validate_axis(nda::View<const Real_t, 1> axis, const char* name) {
-            if (axis.extent(0) < 2)
-                throw std::invalid_argument(std::string(name) + " must contain at least two points");
-
-            for (Index_t i = 1; i < axis.extent(0); ++i)
-                if (!(axis(i) > axis(i - 1)))
-                    throw std::invalid_argument(std::string(name) + " must be strictly increasing");
-        }
-
         // Both axes are increasing, so one forward pass is enough to determine all
-        // interpolation intervals. Boundary points retain the legacy linear
-        // extrapolation behavior.
-        std::vector<InterpPoint> make_interp_map(nda::View<const Real_t, 1> source, nda::View<const Real_t, 1> target) {
+        // interpolation intervals. resample_flux() keeps the established linear
+        // extrapolation behavior; rebin_flux() uses clamped numpy.interp endpoints.
+        std::vector<InterpPoint> make_interp_map(nda::View<const Real_t, 1> source, nda::View<const Real_t, 1> target,
+                                                 bool clamp) {
             std::vector<InterpPoint> map(target.extent(0));
             const Index_t            n  = source.extent(0);
             Index_t                  hi = 1;
@@ -198,11 +144,19 @@ namespace nt {
             for (Index_t i = 0; i < target.extent(0); ++i) {
                 const Real_t x = target(i);
 
-                if (x <= source(0))
+                if (x <= source(0)) {
+                    if (clamp) {
+                        map[i] = {0, 0, Real_t{1}, Real_t{0}};
+                        continue;
+                    }
                     hi = 1;
-                else if (x >= source(n - 1))
+                } else if (x >= source(n - 1)) {
+                    if (clamp) {
+                        map[i] = {n - 1, n - 1, Real_t{1}, Real_t{0}};
+                        continue;
+                    }
                     hi = n - 1;
-                else {
+                } else {
                     while (hi < n - 1 && source(hi) < x)
                         ++hi;
                 }
@@ -213,12 +167,6 @@ namespace nt {
             }
 
             return map;
-        }
-
-        void copy_axis(nda::View<const Real_t, 1> src, nda::View<Real_t, 1> dst) {
-            assert(src.extent(0) == dst.extent(0));
-            for (Index_t i = 0; i < src.extent(0); ++i)
-                dst(i) = src(i);
         }
 
         // The six [particle, flavor] values belonging to one (z,E) grid point are
@@ -355,10 +303,18 @@ namespace nt {
         constexpr const char* cz_path = "/axes/coszenith";
         constexpr const char* en_path = "/axes/energy_GeV";
 
-        Flux flux(read_axis_size(file.get(), cz_path), read_axis_size(file.get(), en_path));
+        auto cz_dataset = open_dataset(file.get(), cz_path);
+        auto en_dataset = open_dataset(file.get(), en_path);
 
-        read_axis(file.get(), cz_path, flux.coszenith());
-        read_axis(file.get(), en_path, flux.energy_gev());
+        const Index_t ncz = static_cast<Index_t>(dataset_shape<1>(cz_dataset.get(), cz_path)[0]);
+        const Index_t ne  = static_cast<Index_t>(dataset_shape<1>(en_dataset.get(), en_path)[0]);
+
+        Flux flux(ncz, ne);
+
+        if (H5Dread(cz_dataset.get(), H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, flux.coszenith().data()) < 0)
+            hdf5_error("cannot read dataset", cz_path);
+        if (H5Dread(en_dataset.get(), H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, flux.energy_gev().data()) < 0)
+            hdf5_error("cannot read dataset", en_path);
 
         const std::string base = "/flux/" + std::string(location) + "/calibrated/";
         read_flux_component(file.get(), base + "numu", flux, Particle::neutrino, Flavor::muon);
@@ -373,105 +329,161 @@ namespace nt {
 
     Flux resample_flux(const Flux& source, nda::View<const Real_t, 1> coszenith,
                        nda::View<const Real_t, 1> energy_gev) {
-        const auto src_z = source.coszenith();
-        const auto src_e = source.energy_gev();
-
-        validate_axis(src_z, "source coszenith");
-        validate_axis(src_e, "source energy");
-        validate_axis(coszenith, "target coszenith");
-        validate_axis(energy_gev, "target energy");
-
-        const auto zmap = make_interp_map(src_z, coszenith);
-        const auto emap = make_interp_map(src_e, energy_gev);
+        const auto zmap = make_interp_map(source.coszenith(), coszenith, false);
+        const auto emap = make_interp_map(source.energy_gev(), energy_gev, false);
 
         Flux result(coszenith.extent(0), energy_gev.extent(0));
-        copy_axis(coszenith, result.coszenith());
-        copy_axis(energy_gev, result.energy_gev());
-        resample_state(source, result, zmap, emap);
 
+        for (Index_t z = 0; z < coszenith.extent(0); ++z)
+            result.coszenith()(z) = coszenith(z);
+        for (Index_t e = 0; e < energy_gev.extent(0); ++e)
+            result.energy_gev()(e) = energy_gev(e);
+
+        resample_state(source, result, zmap, emap);
         return result;
     }
 
     // =============================================================================
-    // Coszenith bin sampling
+    // Bin sampling
     // =============================================================================
 
     nda::Array<Real_t, 1> sample_coszenith_bin_midpoints(nda::View<const Real_t, 1> bin_edges,
                                                          Index_t                    samples_per_bin) {
-        const Index_t n_edges = bin_edges.extent(0);
-
-        if (n_edges < 2)
-            throw std::invalid_argument("bin_edges must contain at least two edges");
-
-        if (samples_per_bin == 0)
-            throw std::invalid_argument("samples_per_bin must be positive");
-
-        const Index_t         n_bins = n_edges - 1;
+        const Index_t         n_bins = bin_edges.extent(0) - 1;
         nda::Array<Real_t, 1> samples({n_bins * samples_per_bin});
 
-        for (Index_t j = 0; j < n_bins; ++j) {
-            const Real_t c0 = bin_edges(j);
-            const Real_t c1 = bin_edges(j + 1);
-
-            if (!std::isfinite(c0) || !std::isfinite(c1))
-                throw std::invalid_argument("non-finite coszenith bin edge");
-
-            if (c0 < -1.0 || c0 > 1.0 || c1 < -1.0 || c1 > 1.0)
-                throw std::invalid_argument("coszenith bin edge out of [-1, 1]");
+        for (Index_t bin = 0; bin < n_bins; ++bin) {
+            const Real_t c0 = bin_edges(bin);
+            const Real_t c1 = bin_edges(bin + 1);
 
             for (Index_t k = 0; k < samples_per_bin; ++k) {
                 const Real_t u = (static_cast<Real_t>(k) + Real_t{0.5}) / static_cast<Real_t>(samples_per_bin);
-                samples(j * samples_per_bin + k) = c0 + u * (c1 - c0);
+                samples(bin * samples_per_bin + k) = c0 + u * (c1 - c0);
             }
         }
 
         return samples;
     }
 
-    Flux average_flux_to_coszenith_bins(const Flux& fine_flux, nda::View<const Real_t, 1> bin_edges,
-                                        Index_t samples_per_bin) {
-        const Index_t n_edges = bin_edges.extent(0);
+    nda::Array<Real_t, 1> sample_log_energy_bin_midpoints(nda::View<const Real_t, 1> bin_edges,
+                                                          Index_t                    samples_per_bin) {
+        const Index_t         n_bins = bin_edges.extent(0) - 1;
+        nda::Array<Real_t, 1> samples({n_bins * samples_per_bin});
 
-        if (n_edges < 2)
-            throw std::invalid_argument("bin_edges must contain at least two edges");
+        for (Index_t bin = 0; bin < n_bins; ++bin) {
+            const Real_t loge0 = std::log10(bin_edges(bin));
+            const Real_t loge1 = std::log10(bin_edges(bin + 1));
 
-        if (samples_per_bin == 0)
-            throw std::invalid_argument("samples_per_bin must be positive");
+            for (Index_t k = 0; k < samples_per_bin; ++k) {
+                const Real_t u = (static_cast<Real_t>(k) + Real_t{0.5}) / static_cast<Real_t>(samples_per_bin);
+                samples(bin * samples_per_bin + k) = std::pow(Real_t{10}, loge0 + u * (loge1 - loge0));
+            }
+        }
 
-        const Index_t n_bins        = n_edges - 1;
-        const Index_t n_energy      = fine_flux.n_energy();
-        const Index_t expected_fine = n_bins * samples_per_bin;
+        return samples;
+    }
 
-        if (fine_flux.n_coszenith() != expected_fine)
-            throw std::invalid_argument("fine_flux coszenith size does not match bin_edges and samples_per_bin");
+    // =============================================================================
+    // Fine-grid -> coarse-grid rebinning
+    // =============================================================================
 
-        Flux result(n_bins, n_energy);
+    Flux rebin_flux(const Flux& fine_flux, nda::View<const Real_t, 1> target_coszenith,
+                    nda::View<const Real_t, 1> target_energy_gev, Index_t coszenith_samples_per_bin,
+                    Index_t energy_samples_per_bin, const FluxRebinOptions& options) {
+        const Index_t ncz = target_coszenith.extent(0);
+        const Index_t ne  = target_energy_gev.extent(0);
 
-        for (Index_t j = 0; j < n_bins; ++j)
-            result.coszenith()(j) = Real_t{0.5} * (bin_edges(j) + bin_edges(j + 1));
+        Flux coarse(ncz, ne);
 
-        copy_axis(fine_flux.energy_gev(), result.energy_gev());
+        for (Index_t z = 0; z < ncz; ++z)
+            coarse.coszenith()(z) = target_coszenith(z);
+        for (Index_t e = 0; e < ne; ++e)
+            coarse.energy_gev()(e) = target_energy_gev(e);
 
-        const Real_t inv_n = Real_t{1} / static_cast<Real_t>(samples_per_bin);
-        const auto&  src   = fine_flux.native_state();
-        auto&        dst   = result.native_state();
+        if (!options.interpolate_coszenith && !options.interpolate_energy) {
+            const Real_t inv_samples =
+                Real_t{1} / static_cast<Real_t>(coszenith_samples_per_bin * energy_samples_per_bin);
 
-        for (Index_t j = 0; j < n_bins; ++j) {
-            for (Index_t e = 0; e < n_energy; ++e) {
-                for (Index_t p = 0; p < particle_count; ++p) {
-                    for (Index_t f = 0; f < flavor_count; ++f) {
-                        Real_t sum = 0;
+            for (Index_t p = 0; p < particle_count; ++p) {
+                for (Index_t f = 0; f < flavor_count; ++f) {
+                    const auto src = fine_flux.component(static_cast<Particle>(p), static_cast<Flavor>(f));
+                    auto       dst = coarse.component(static_cast<Particle>(p), static_cast<Flavor>(f));
 
-                        for (Index_t k = 0; k < samples_per_bin; ++k)
-                            sum += src[j * samples_per_bin + k][e][p][f];
+                    for (Index_t z = 0; z < ncz; ++z) {
+                        for (Index_t e = 0; e < ne; ++e) {
+                            Real_t sum = 0.0;
 
-                        dst[j][e][p][f] = sum * inv_n;
+                            for (Index_t iz = 0; iz < coszenith_samples_per_bin; ++iz) {
+                                const Index_t fine_z = z * coszenith_samples_per_bin + iz;
+
+                                for (Index_t ie = 0; ie < energy_samples_per_bin; ++ie) {
+                                    const Index_t fine_e = e * energy_samples_per_bin + ie;
+                                    sum += src(fine_z, fine_e);
+                                }
+                            }
+
+                            dst(z, e) = sum * inv_samples;
+                        }
+                    }
+                }
+            }
+
+            return coarse;
+        }
+
+        const auto zmap = options.interpolate_coszenith ? make_interp_map(fine_flux.coszenith(), target_coszenith, true)
+                                                        : std::vector<InterpPoint>{};
+        const auto emap = options.interpolate_energy ? make_interp_map(fine_flux.energy_gev(), target_energy_gev, true)
+                                                     : std::vector<InterpPoint>{};
+
+        if (options.interpolate_coszenith && options.interpolate_energy) {
+            resample_state(fine_flux, coarse, zmap, emap);
+            return coarse;
+        }
+
+        for (Index_t p = 0; p < particle_count; ++p) {
+            for (Index_t f = 0; f < flavor_count; ++f) {
+                const auto src = fine_flux.component(static_cast<Particle>(p), static_cast<Flavor>(f));
+                auto       dst = coarse.component(static_cast<Particle>(p), static_cast<Flavor>(f));
+
+                if (options.interpolate_energy) {
+                    const Real_t inv_z = Real_t{1} / static_cast<Real_t>(coszenith_samples_per_bin);
+
+                    for (Index_t z = 0; z < ncz; ++z) {
+                        for (Index_t e = 0; e < ne; ++e) {
+                            const auto& point = emap[e];
+                            Real_t      sum   = 0.0;
+
+                            for (Index_t iz = 0; iz < coszenith_samples_per_bin; ++iz) {
+                                const Index_t fine_z = z * coszenith_samples_per_bin + iz;
+                                sum += point.w0 * src(fine_z, point.lo) + point.w1 * src(fine_z, point.hi);
+                            }
+
+                            dst(z, e) = sum * inv_z;
+                        }
+                    }
+                } else {
+                    const Real_t inv_e = Real_t{1} / static_cast<Real_t>(energy_samples_per_bin);
+
+                    for (Index_t z = 0; z < ncz; ++z) {
+                        const auto& point = zmap[z];
+
+                        for (Index_t e = 0; e < ne; ++e) {
+                            Real_t sum = 0.0;
+
+                            for (Index_t ie = 0; ie < energy_samples_per_bin; ++ie) {
+                                const Index_t fine_e = e * energy_samples_per_bin + ie;
+                                sum += point.w0 * src(point.lo, fine_e) + point.w1 * src(point.hi, fine_e);
+                            }
+
+                            dst(z, e) = sum * inv_e;
+                        }
                     }
                 }
             }
         }
 
-        return result;
+        return coarse;
     }
 
 } // namespace nt

@@ -42,12 +42,7 @@ namespace nt {
                                      const DensityPerturbation& perturbation);
 
       private:
-        void validate_grid(const Flux& flux) const;
-
         [[nodiscard]] Flux propagate_with_body(const Flux& initial, std::shared_ptr<nusquids::EarthAtm> earth);
-
-        Flux::Axis coszenith_;
-        Flux::Axis energy_gev_;
 
         nusquids::nuSQUIDSAtm<> nus_;
     };

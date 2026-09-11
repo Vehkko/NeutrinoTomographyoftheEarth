@@ -94,39 +94,41 @@ namespace nt {
     // Flux datasets are [coszenith, energy]. HDF5 writes them directly into
     // state[:, :, particle, muon] using a memory hyperslab; no temporary 2D
     // owning array is created.
-    //
-    // This function intentionally does not interpret legacy IceCube flux files.
     [[nodiscard]] Flux load_daemonflux(const std::filesystem::path& filename, std::string_view location);
 
     // Resample the complete six-component flux state onto a new grid.
     //
-    // Interpolation matches the legacy numerical convention:
-    //     - linear in coszenith;
-    //     - linear in E_GeV;
-    //     - linear extrapolation from the nearest boundary interval.
-    //
-    // Source and target axes must be strictly increasing. Interpolation intervals
-    // and weights are precomputed once; all six contiguous particle/flavor values
-    // at each grid point are then processed together.
+    // Interpolation is linear in coszenith and E_GeV. Boundary points retain
+    // the established linear-extrapolation behavior.
     [[nodiscard]] Flux resample_flux(const Flux& source, nda::View<const Real_t, 1> coszenith,
                                      nda::View<const Real_t, 1> energy_gev);
 
-    // Generate the legacy midpoint samples inside each coszenith bin:
-    //
-    //     z[j,k] = edge[j] + (k + 0.5) / samples_per_bin
-    //                        * (edge[j + 1] - edge[j])
-    //
+    // Generate uniformly spaced midpoint samples inside each coszenith bin.
     // Samples belonging to one bin are contiguous.
     [[nodiscard]] nda::Array<Real_t, 1> sample_coszenith_bin_midpoints(nda::View<const Real_t, 1> bin_edges,
                                                                        Index_t                    samples_per_bin);
 
-    // Average a finely sampled Flux back to its original coszenith bins.
+    // Generate midpoint samples uniformly in log10(E/GeV) inside each energy bin.
+    // Samples belonging to one bin are contiguous.
+    [[nodiscard]] nda::Array<Real_t, 1> sample_log_energy_bin_midpoints(nda::View<const Real_t, 1> bin_edges,
+                                                                        Index_t                    samples_per_bin);
+
+    // Fine-grid -> coarse-grid treatment for each axis. The default is arithmetic
+    // averaging in both directions. Interpolation uses all fine-grid nodes and is
+    // piecewise linear in coszenith or E_GeV respectively.
+    struct FluxRebinOptions {
+        bool interpolate_coszenith = false;
+        bool interpolate_energy    = false;
+    };
+
+    // Rebin a regularly refined Flux back to the target grid.
     //
-    // The input ordering must be the ordering produced by
-    // sample_coszenith_bin_midpoints(). The output coszenith coordinate is the
-    // exact arithmetic midpoint of each pair of bin edges, matching the legacy
-    // averageFluxBackToBins() convention.
-    [[nodiscard]] Flux average_flux_to_coszenith_bins(const Flux& fine_flux, nda::View<const Real_t, 1> bin_edges,
-                                                      Index_t samples_per_bin);
+    // The fine-grid ordering must be produced by the midpoint samplers above:
+    // consecutive samples belong to the same target bin. Average and interpolation
+    // can be selected independently for coszenith and energy. Interpolation follows
+    // numpy.interp endpoint behavior and therefore clamps outside the fine-grid range.
+    [[nodiscard]] Flux rebin_flux(const Flux& fine_flux, nda::View<const Real_t, 1> target_coszenith,
+                                  nda::View<const Real_t, 1> target_energy_gev, Index_t coszenith_samples_per_bin,
+                                  Index_t energy_samples_per_bin, const FluxRebinOptions& options = {});
 
 } // namespace nt

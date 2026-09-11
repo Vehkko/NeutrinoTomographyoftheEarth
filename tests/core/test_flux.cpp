@@ -57,18 +57,14 @@ namespace {
         require(numu.extent(0) == 2 && numu.extent(1) == 3, "numu shape is wrong");
         require(antinumu.extent(0) == 2 && antinumu.extent(1) == 3, "antinumu shape is wrong");
 
-        // Write through NDA view -> native marray must change immediately.
         numu(1, 2) = 42.0;
         require_close(flux.native_state()[1][2][0][1], 42.0, "numu view does not alias native state");
 
         antinumu(0, 1) = 17.0;
         require_close(flux.native_state()[0][1][1][1], 17.0, "antinumu view does not alias native state");
 
-        // Write through native marray -> NDA view must see the same value.
         flux.native_state()[1][0][0][1] = 23.0;
         require_close(numu(1, 0), 23.0, "native state does not alias numu view");
-
-        // Different components must not alias each other.
         require_close(flux.native_state()[1][2][1][1], 0.0, "numu write corrupted antinumu component");
 
         std::cout << "[PASS] component views\n";
@@ -85,7 +81,6 @@ namespace {
 
         const hid_t dataset = H5Dcreate2(file, path, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         require(dataset >= 0, "H5Dcreate2 failed");
-
         require(H5Dwrite(dataset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data) >= 0, "H5Dwrite failed");
 
         H5Dclose(dataset);
@@ -99,7 +94,6 @@ namespace {
 
         const hid_t dataset = H5Dcreate2(file, path, H5T_NATIVE_DOUBLE, space, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
         require(dataset >= 0, "H5Dcreate2 failed");
-
         require(H5Dwrite(dataset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, data) >= 0, "H5Dwrite failed");
 
         H5Dclose(dataset);
@@ -108,7 +102,6 @@ namespace {
 
     std::filesystem::path make_test_daemonflux_file() {
         const auto path = std::filesystem::temp_directory_path() / "neutrino_tomography_test_flux.h5";
-
         std::filesystem::remove(path);
 
         const hid_t file = H5Fcreate(path.string().c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
@@ -133,7 +126,6 @@ namespace {
         const Real_t coszenith[] = {-1.0, 0.0};
         const Real_t energy[]    = {100.0, 200.0, 400.0};
 
-        // Stored HDF5 layout is [coszenith, energy].
         const Real_t numu[] = {
             1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
         };
@@ -161,7 +153,6 @@ namespace {
 
         require(flux.n_coszenith() == 2, "loaded coszenith size is wrong");
         require(flux.n_energy() == 3, "loaded energy size is wrong");
-
         require_close(flux.coszenith()(0), -1.0, "wrong coszenith[0]");
         require_close(flux.coszenith()(1), 0.0, "wrong coszenith[1]");
         require_close(flux.energy_gev()(0), 100.0, "wrong energy[0]");
@@ -183,13 +174,6 @@ namespace {
             for (Index_t e = 0; e < 3; ++e) {
                 require_close(numu(z, e), expected_numu[z][e], "wrong loaded numu");
                 require_close(antinumu(z, e), expected_antinumu[z][e], "wrong loaded antinumu");
-            }
-        }
-
-        // DaemonFlux currently supplies only νμ and ν̄μ. All other components
-        // must remain zero after the HDF5 hyperslab reads.
-        for (Index_t z = 0; z < 2; ++z) {
-            for (Index_t e = 0; e < 3; ++e) {
                 require_close(flux.component(Particle::neutrino, Flavor::electron)(z, e), 0.0,
                               "nue should remain zero");
                 require_close(flux.component(Particle::neutrino, Flavor::tau)(z, e), 0.0, "nutau should remain zero");
@@ -206,21 +190,7 @@ namespace {
 
     // -----------------------------------------------------------------------------
     // Test 3: bilinear interpolation and boundary extrapolation.
-    //
-    // A bilinear function
-    //
-    //     f(z,E) = A + 2z + 3E + 0.25 zE
-    //
-    // must be reproduced exactly by bilinear interpolation, including extrapolation.
-    // Give every particle/flavor component a different A so all six components are
-    // checked in one test.
     // -----------------------------------------------------------------------------
-
-    Real_t reference_flux(Particle particle, Flavor flavor, Real_t z, Real_t energy) {
-        const Real_t base = 1000.0 * static_cast<Index_t>(particle) + 100.0 * static_cast<Index_t>(flavor);
-
-        return base + 2.0 * z + 3.0 * energy + 0.25 * z * energy;
-    }
 
     void test_resample_flux() {
         Flux source(3, 3);
@@ -233,6 +203,11 @@ namespace {
             source.energy_gev()(i) = source_e[i];
         }
 
+        const auto value = [](Particle particle, Flavor flavor, Real_t z, Real_t energy) {
+            const Real_t base = 1000.0 * static_cast<Index_t>(particle) + 100.0 * static_cast<Index_t>(flavor);
+            return base + 2.0 * z + 3.0 * energy + 0.25 * z * energy;
+        };
+
         for (Index_t p = 0; p < 2; ++p) {
             for (Index_t f = 0; f < 3; ++f) {
                 const auto particle  = static_cast<Particle>(p);
@@ -241,19 +216,18 @@ namespace {
 
                 for (Index_t z = 0; z < 3; ++z)
                     for (Index_t e = 0; e < 3; ++e)
-                        component(z, e) = reference_flux(particle, flavor, source_z[z], source_e[e]);
+                        component(z, e) = value(particle, flavor, source_z[z], source_e[e]);
             }
         }
 
-        // Contains both interpolation points and points outside the source range,
-        // so legacy linear-extrapolation behavior is tested as well.
+        // Contains interpolation points and points outside the source range, so
+        // the established linear-extrapolation behavior is also tested.
         const std::array<Real_t, 3> target_z = {-1.2, -0.75, 0.2};
         const std::array<Real_t, 3> target_e = {50.0, 150.0, 500.0};
 
-        const auto z_view = nda::make_view1d(static_cast<const Real_t*>(target_z.data()), target_z.size());
-        const auto e_view = nda::make_view1d(static_cast<const Real_t*>(target_e.data()), target_e.size());
-
-        auto result = nt::resample_flux(source, z_view, e_view);
+        auto result =
+            nt::resample_flux(source, nda::make_view1d(static_cast<const Real_t*>(target_z.data()), target_z.size()),
+                              nda::make_view1d(static_cast<const Real_t*>(target_e.data()), target_e.size()));
 
         for (Index_t p = 0; p < 2; ++p) {
             for (Index_t f = 0; f < 3; ++f) {
@@ -261,12 +235,10 @@ namespace {
                 const auto flavor    = static_cast<Flavor>(f);
                 const auto component = result.component(particle, flavor);
 
-                for (Index_t z = 0; z < target_z.size(); ++z) {
-                    for (Index_t e = 0; e < target_e.size(); ++e) {
-                        require_close(component(z, e), reference_flux(particle, flavor, target_z[z], target_e[e]),
+                for (Index_t z = 0; z < target_z.size(); ++z)
+                    for (Index_t e = 0; e < target_e.size(); ++e)
+                        require_close(component(z, e), value(particle, flavor, target_z[z], target_e[e]),
                                       "resampled flux is wrong");
-                    }
-                }
             }
         }
 
@@ -274,48 +246,78 @@ namespace {
     }
 
     // -----------------------------------------------------------------------------
-    // Test 4: legacy midpoint sampling inside nonuniform coszenith bins.
+    // Test 4: midpoint sampling in coszenith and log10(E/GeV).
     // -----------------------------------------------------------------------------
 
-    void test_coszenith_bin_midpoints() {
-        const std::array<Real_t, 4> edges = {-1.0, -0.9, -0.4, 0.0};
-        const auto edge_view              = nda::make_view1d(static_cast<const Real_t*>(edges.data()), edges.size());
+    void test_bin_midpoints() {
+        const std::array<Real_t, 4> z_edges           = {-1.0, -0.9, -0.4, 0.0};
+        constexpr Index_t           z_samples_per_bin = 3;
+        const auto                  z_samples         = nt::sample_coszenith_bin_midpoints(
+            nda::make_view1d(static_cast<const Real_t*>(z_edges.data()), z_edges.size()), z_samples_per_bin);
 
-        constexpr Index_t samples_per_bin = 3;
-        const auto        samples         = nt::sample_coszenith_bin_midpoints(edge_view, samples_per_bin);
-
-        require(samples.extent(0) == 9, "wrong number of coszenith midpoint samples");
+        require(z_samples.extent(0) == 9, "wrong number of coszenith midpoint samples");
 
         Index_t index = 0;
-        for (Index_t j = 0; j + 1 < edges.size(); ++j) {
-            for (Index_t k = 0; k < samples_per_bin; ++k) {
-                const Real_t u        = (static_cast<Real_t>(k) + Real_t{0.5}) / static_cast<Real_t>(samples_per_bin);
-                const Real_t expected = edges[j] + u * (edges[j + 1] - edges[j]);
-                require_close(samples(index++), expected, "wrong coszenith midpoint sample");
+        for (Index_t bin = 0; bin + 1 < z_edges.size(); ++bin) {
+            for (Index_t k = 0; k < z_samples_per_bin; ++k) {
+                const Real_t u = (static_cast<Real_t>(k) + Real_t{0.5}) / static_cast<Real_t>(z_samples_per_bin);
+                require_close(z_samples(index++), z_edges[bin] + u * (z_edges[bin + 1] - z_edges[bin]),
+                              "wrong coszenith midpoint sample");
             }
         }
 
-        std::cout << "[PASS] coszenith bin midpoint sampling\n";
+        const std::array<Real_t, 3> e_edges           = {100.0, 1000.0, 10000.0};
+        constexpr Index_t           e_samples_per_bin = 2;
+        const auto                  e_samples         = nt::sample_log_energy_bin_midpoints(
+            nda::make_view1d(static_cast<const Real_t*>(e_edges.data()), e_edges.size()), e_samples_per_bin);
+
+        require(e_samples.extent(0) == 4, "wrong number of energy midpoint samples");
+
+        index = 0;
+        for (Index_t bin = 0; bin + 1 < e_edges.size(); ++bin) {
+            const Real_t loge0 = std::log10(e_edges[bin]);
+            const Real_t loge1 = std::log10(e_edges[bin + 1]);
+
+            for (Index_t k = 0; k < e_samples_per_bin; ++k) {
+                const Real_t u = (static_cast<Real_t>(k) + Real_t{0.5}) / static_cast<Real_t>(e_samples_per_bin);
+                require_close(e_samples(index++), std::pow(Real_t{10}, loge0 + u * (loge1 - loge0)),
+                              "wrong log-energy midpoint sample");
+            }
+        }
+
+        std::cout << "[PASS] bin midpoint sampling\n";
     }
 
     // -----------------------------------------------------------------------------
-    // Test 5: legacy arithmetic averaging from fine samples back to bins.
+    // Test 5: both axes independently support averaging or interpolation.
     // -----------------------------------------------------------------------------
 
-    void test_average_flux_to_bins() {
-        const std::array<Real_t, 4> edges = {-1.0, -0.9, -0.4, 0.0};
-        const auto edge_view              = nda::make_view1d(static_cast<const Real_t*>(edges.data()), edges.size());
+    void test_rebin_flux() {
+        const std::array<Real_t, 3> z_edges         = {-1.0, -0.5, 0.0};
+        const std::array<Real_t, 3> e_edges         = {100.0, 1000.0, 10000.0};
+        constexpr Index_t           samples_per_bin = 2;
 
-        constexpr Index_t samples_per_bin = 3;
-        const auto        samples         = nt::sample_coszenith_bin_midpoints(edge_view, samples_per_bin);
+        const auto fine_z = nt::sample_coszenith_bin_midpoints(
+            nda::make_view1d(static_cast<const Real_t*>(z_edges.data()), z_edges.size()), samples_per_bin);
+        const auto fine_e = nt::sample_log_energy_bin_midpoints(
+            nda::make_view1d(static_cast<const Real_t*>(e_edges.data()), e_edges.size()), samples_per_bin);
 
-        Flux fine(samples.extent(0), 2);
+        const std::array<Real_t, 2> target_z = {-0.75, -0.25};
+        const std::array<Real_t, 2> target_e = {std::sqrt(100.0 * 1000.0), std::sqrt(1000.0 * 10000.0)};
+        const auto target_z_view = nda::make_view1d(static_cast<const Real_t*>(target_z.data()), target_z.size());
+        const auto target_e_view = nda::make_view1d(static_cast<const Real_t*>(target_e.data()), target_e.size());
 
-        for (Index_t z = 0; z < samples.extent(0); ++z)
-            fine.coszenith()(z) = samples(z);
+        Flux fine(fine_z.extent(0), fine_e.extent(0));
 
-        fine.energy_gev()(0) = 100.0;
-        fine.energy_gev()(1) = 200.0;
+        for (Index_t z = 0; z < fine.n_coszenith(); ++z)
+            fine.coszenith()(z) = fine_z(z);
+        for (Index_t e = 0; e < fine.n_energy(); ++e)
+            fine.energy_gev()(e) = fine_e(e);
+
+        const auto value = [](Particle particle, Flavor flavor, Real_t z, Real_t energy) {
+            const Real_t base = 1000.0 * static_cast<Index_t>(particle) + 100.0 * static_cast<Index_t>(flavor);
+            return base + 7.0 * z + 0.002 * energy + 3.0 * z * z + 1.0e-7 * energy * energy + 0.001 * z * energy;
+        };
 
         for (Index_t p = 0; p < 2; ++p) {
             for (Index_t f = 0; f < 3; ++f) {
@@ -323,40 +325,79 @@ namespace {
                 const auto flavor    = static_cast<Flavor>(f);
                 auto       component = fine.component(particle, flavor);
 
-                for (Index_t z = 0; z < fine.n_coszenith(); ++z) {
+                for (Index_t z = 0; z < fine.n_coszenith(); ++z)
                     for (Index_t e = 0; e < fine.n_energy(); ++e)
-                        component(z, e) = reference_flux(particle, flavor, fine.coszenith()(z), fine.energy_gev()(e));
-                }
+                        component(z, e) = value(particle, flavor, fine_z(z), fine_e(e));
             }
         }
 
-        const auto averaged = nt::average_flux_to_coszenith_bins(fine, edge_view, samples_per_bin);
+        const auto average_average =
+            nt::rebin_flux(fine, target_z_view, target_e_view, samples_per_bin, samples_per_bin);
 
-        require(averaged.n_coszenith() == 3, "wrong averaged coszenith dimension");
-        require(averaged.n_energy() == 2, "wrong averaged energy dimension");
+        nt::FluxRebinOptions average_interpolate_options;
+        average_interpolate_options.interpolate_energy = true;
+        const auto average_interpolate = nt::rebin_flux(fine, target_z_view, target_e_view, samples_per_bin,
+                                                        samples_per_bin, average_interpolate_options);
 
-        require_close(averaged.energy_gev()(0), 100.0, "averaging changed energy axis");
-        require_close(averaged.energy_gev()(1), 200.0, "averaging changed energy axis");
+        nt::FluxRebinOptions interpolate_average_options;
+        interpolate_average_options.interpolate_coszenith = true;
+        const auto interpolate_average = nt::rebin_flux(fine, target_z_view, target_e_view, samples_per_bin,
+                                                        samples_per_bin, interpolate_average_options);
 
-        for (Index_t z = 0; z < averaged.n_coszenith(); ++z) {
-            const Real_t center = Real_t{0.5} * (edges[z] + edges[z + 1]);
-            require_close(averaged.coszenith()(z), center, "wrong averaged coszenith coordinate");
+        nt::FluxRebinOptions interpolate_interpolate_options;
+        interpolate_interpolate_options.interpolate_coszenith = true;
+        interpolate_interpolate_options.interpolate_energy    = true;
+        const auto interpolate_interpolate = nt::rebin_flux(fine, target_z_view, target_e_view, samples_per_bin,
+                                                            samples_per_bin, interpolate_interpolate_options);
 
-            for (Index_t p = 0; p < 2; ++p) {
-                for (Index_t f = 0; f < 3; ++f) {
-                    const auto particle  = static_cast<Particle>(p);
-                    const auto flavor    = static_cast<Flavor>(f);
-                    const auto component = averaged.component(particle, flavor);
+        for (Index_t p = 0; p < 2; ++p) {
+            for (Index_t f = 0; f < 3; ++f) {
+                const auto particle = static_cast<Particle>(p);
+                const auto flavor   = static_cast<Flavor>(f);
+                const auto aa       = average_average.component(particle, flavor);
+                const auto ai       = average_interpolate.component(particle, flavor);
+                const auto ia       = interpolate_average.component(particle, flavor);
+                const auto ii       = interpolate_interpolate.component(particle, flavor);
 
-                    for (Index_t e = 0; e < averaged.n_energy(); ++e) {
-                        const Real_t expected = reference_flux(particle, flavor, center, averaged.energy_gev()(e));
-                        require_close(component(z, e), expected, "wrong flux after averaging back to bins");
+                for (Index_t z = 0; z < target_z.size(); ++z) {
+                    const Index_t z0 = z * samples_per_bin;
+                    const Index_t z1 = z0 + 1;
+                    const Real_t  wz = (target_z[z] - fine_z(z0)) / (fine_z(z1) - fine_z(z0));
+
+                    for (Index_t e = 0; e < target_e.size(); ++e) {
+                        const Index_t e0 = e * samples_per_bin;
+                        const Index_t e1 = e0 + 1;
+                        const Real_t  we = (target_e[e] - fine_e(e0)) / (fine_e(e1) - fine_e(e0));
+
+                        const Real_t v00 = value(particle, flavor, fine_z(z0), fine_e(e0));
+                        const Real_t v01 = value(particle, flavor, fine_z(z0), fine_e(e1));
+                        const Real_t v10 = value(particle, flavor, fine_z(z1), fine_e(e0));
+                        const Real_t v11 = value(particle, flavor, fine_z(z1), fine_e(e1));
+
+                        const Real_t expected_aa = Real_t{0.25} * (v00 + v01 + v10 + v11);
+                        const Real_t expected_ai =
+                            Real_t{0.5} * ((Real_t{1} - we) * v00 + we * v01 + (Real_t{1} - we) * v10 + we * v11);
+                        const Real_t expected_ia =
+                            Real_t{0.5} * ((Real_t{1} - wz) * v00 + wz * v10 + (Real_t{1} - wz) * v01 + wz * v11);
+                        const Real_t expected_ii = (Real_t{1} - wz) * (Real_t{1} - we) * v00 +
+                                                   (Real_t{1} - wz) * we * v01 + wz * (Real_t{1} - we) * v10 +
+                                                   wz * we * v11;
+
+                        require_close(aa(z, e), expected_aa, "average/average rebin is wrong");
+                        require_close(ai(z, e), expected_ai, "average/interpolate rebin is wrong");
+                        require_close(ia(z, e), expected_ia, "interpolate/average rebin is wrong");
+                        require_close(ii(z, e), expected_ii, "interpolate/interpolate rebin is wrong");
                     }
                 }
             }
         }
 
-        std::cout << "[PASS] flux averaging back to coszenith bins\n";
+        for (Index_t z = 0; z < target_z.size(); ++z)
+            require_close(interpolate_interpolate.coszenith()(z), target_z[z], "rebin changed target coszenith axis");
+        for (Index_t e = 0; e < target_e.size(); ++e)
+            require_close(interpolate_interpolate.energy_gev()(e), target_e[e], "rebin changed target energy axis");
+
+        std::cout << "[PASS] flux rebinning\n";
     }
 
 } // namespace
@@ -366,8 +407,8 @@ int main() {
         test_component_views();
         test_daemonflux_loader();
         test_resample_flux();
-        test_coszenith_bin_midpoints();
-        test_average_flux_to_bins();
+        test_bin_midpoints();
+        test_rebin_flux();
 
         std::cout << "[PASS] all flux tests\n";
         return 0;

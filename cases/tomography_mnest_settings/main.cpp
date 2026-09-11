@@ -27,7 +27,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-    using nt::EventDistribution;
     using nt::Index_t;
     using nt::Real_t;
 
@@ -117,43 +116,9 @@ namespace {
         double                          logz_error = std::numeric_limits<double>::quiet_NaN();
     };
 
-    const RunConfig* find_run(const std::string& name) {
-        for (const auto& run : RUNS) {
-            if (name == run.name)
-                return &run;
-        }
-
-        return nullptr;
-    }
-
-    template <std::size_t N> auto view(const std::array<Real_t, N>& values) {
-        return nda::make_view1d(static_cast<const Real_t*>(values.data()), values.size());
-    }
-
-    Real_t total_events(const EventDistribution& events) {
-        Real_t total = 0.0;
-
-        for (Index_t z = 0; z < events.counts.extent(0); ++z) {
-            for (Index_t e = 0; e < events.counts.extent(1); ++e)
-                total += events.counts(z, e);
-        }
-
-        return total;
-    }
-
-    std::array<Real_t, 5> mean_layer_densities(const nt::EarthProfile& prem) {
-        std::array<Real_t, 5> density{};
-
-        for (Index_t i = 0; i < 5; ++i)
-            density[i] = nt::mean_density_g_cm3(prem, LAYER_EDGES_KM[i], LAYER_EDGES_KM[i + 1]);
-
-        return density;
-    }
-
     double percentile(const std::vector<double>& sorted, double p) {
         if (sorted.empty())
             throw std::runtime_error("cannot calculate percentile of an empty posterior");
-
         if (sorted.size() == 1)
             return sorted.front();
 
@@ -161,7 +126,6 @@ namespace {
         const auto   lower    = static_cast<std::size_t>(std::floor(position));
         const auto   upper    = static_cast<std::size_t>(std::ceil(position));
         const double weight   = position - static_cast<double>(lower);
-
         return sorted[lower] * (1.0 - weight) + sorted[upper] * weight;
     }
 
@@ -173,15 +137,13 @@ namespace {
             throw std::runtime_error("cannot open posterior file: " + filename.string());
 
         std::array<std::vector<double>, 5> samples;
-
-        std::string line;
+        std::string                        line;
 
         while (std::getline(file, line)) {
             if (line.empty())
                 continue;
 
-            std::istringstream row(line);
-
+            std::istringstream    row(line);
             std::array<double, 5> q{};
             double                loglike = 0.0;
 
@@ -201,14 +163,12 @@ namespace {
 
         for (Index_t i = 0; i < 5; ++i) {
             auto& values = samples[i];
-
             std::sort(values.begin(), values.end());
 
             auto& out = summary[i];
-
-            out.q16 = percentile(values, 0.16);
-            out.q50 = percentile(values, 0.50);
-            out.q84 = percentile(values, 0.84);
+            out.q16   = percentile(values, 0.16);
+            out.q50   = percentile(values, 0.50);
+            out.q84   = percentile(values, 0.84);
 
             out.rho16 = out.q16 * prem_density[i];
             out.rho50 = out.q50 * prem_density[i];
@@ -224,15 +184,13 @@ namespace {
     }
 
     void loglike(double* cube, int& ndim, int& npars, double& loglike_value, void* context) {
+        (void)ndim;
         (void)npars;
 
         auto&               ctx        = *static_cast<Context*>(context);
         const std::uint64_t evaluation = ++ctx.evaluations;
 
         try {
-            if (ndim != 5)
-                throw std::runtime_error("MultiNest ndim must be 5");
-
             std::array<Real_t, 5> q{};
 
             for (int i = 0; i < 5; ++i) {
@@ -240,7 +198,8 @@ namespace {
                 cube[i] = q[i];
             }
 
-            const auto earth      = nt::make_layered_constant_5(*ctx.prem, view(q));
+            const auto earth = nt::make_layered_constant_5(
+                *ctx.prem, nda::make_view1d(static_cast<const Real_t*>(q.data()), q.size()));
             const auto propagated = ctx.solver->propagate(*ctx.initial, *ctx.prem, earth);
             const auto prediction = nt::predict_events(propagated, *ctx.response);
 
@@ -259,7 +218,6 @@ namespace {
                             loglike_value = MN_LOG_ZERO;
                             return;
                         }
-
                         value += -nexp + nobs - nobs * std::log(nobs / nexp);
                     } else {
                         value += -nexp;
@@ -286,7 +244,6 @@ namespace {
             ctx.fatal_message = error.what();
 
             std::cerr << "[FATAL] likelihood: " << error.what() << '\n';
-
             loglike_value = std::numeric_limits<double>::max();
         }
     }
@@ -341,14 +298,12 @@ namespace {
         context.run_name = config.name;
         context.console  = root_process;
 
-        int ndims   = 5;
-        int nPar    = 5;
-        int nClsPar = 5;
-
+        int ndims    = 5;
+        int nPar     = 5;
+        int nClsPar  = 5;
         int pWrap[5] = {0, 0, 0, 0, 0};
 
         std::string multinest_root = raw_output_dir.string();
-
         if (multinest_root.back() != '/')
             multinest_root.push_back('/');
 
@@ -358,7 +313,6 @@ namespace {
 
         int local_fatal  = context.fatal_error ? 1 : 0;
         int global_fatal = 0;
-
         MPI_Allreduce(&local_fatal, &global_fatal, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
 
         if (global_fatal)
@@ -452,7 +406,6 @@ namespace {
         file << "|:---|---:|---:|:---:|---:|---:|---:|\n";
 
         const double baseline_logz = summaries.front().logz;
-
         file << std::fixed << std::setprecision(8);
 
         for (const auto& run : summaries) {
@@ -469,7 +422,6 @@ namespace {
         for (const auto& run : summaries) {
             for (Index_t i = 0; i < 5; ++i) {
                 const auto& p = run.parameters[i];
-
                 file << "| " << run.config.name << " | " << LAYER_NAMES[i] << " | " << p.q16 << " | " << p.q50 << " | "
                      << p.q84 << " | " << p.rho16 << " | " << p.rho50 << " | " << p.rho84 << " | "
                      << 100.0 * p.precision << "% |\n";
@@ -491,7 +443,6 @@ int main(int argc, char** argv) {
                 summaries.push_back(read_run_summary(result_dir / config.name / "summary.dat", config));
 
             const fs::path summary_file = result_dir / "summary.md";
-
             write_summary(summary_file, summaries);
 
             std::cout << '\n';
@@ -514,7 +465,13 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const RunConfig* config = find_run(argv[2]);
+    const RunConfig* config = nullptr;
+    for (const auto& run : RUNS) {
+        if (argv[2] == std::string(run.name)) {
+            config = &run;
+            break;
+        }
+    }
 
     if (!config) {
         std::cerr << "[fatal] unknown run: " << argv[2] << '\n';
@@ -530,8 +487,7 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
     const bool root_process = rank == 0;
-
-    int exit_code = 0;
+    int        exit_code    = 0;
 
     try {
         const fs::path daemonflux_file = "data/generated/daemonflux/daemonflux_0.8.2.h5";
@@ -558,9 +514,16 @@ int main(int argc, char** argv) {
         const auto asimov_flux = solver.propagate(initial, prem);
         const auto asimov_data = nt::predict_events(asimov_flux, response);
 
-        const auto prem_density = mean_layer_densities(prem);
+        std::array<Real_t, 5> prem_density{};
+        for (Index_t i = 0; i < 5; ++i)
+            prem_density[i] = nt::mean_density_g_cm3(prem, LAYER_EDGES_KM[i], LAYER_EDGES_KM[i + 1]);
 
         if (root_process) {
+            Real_t asimov_events = 0.0;
+            for (Index_t z = 0; z < asimov_data.counts.extent(0); ++z)
+                for (Index_t e = 0; e < asimov_data.counts.extent(1); ++e)
+                    asimov_events += asimov_data.counts(z, e);
+
             std::cout << '\n';
             std::cout << "TRIDENT five-layer constant-density MultiNest settings scan\n";
             std::cout << "------------------------------------------------------------\n";
@@ -571,8 +534,8 @@ int main(int argc, char** argv) {
             std::cout << "Interactions     : enabled\n";
             std::cout << "Energy treatment : response true-energy centers\n";
             std::cout << "Random seed      : " << MN_SEED << '\n';
-            std::cout << "Asimov events    : " << std::fixed << std::setprecision(6)
-                      << total_events(asimov_data) * EXPOSURE_YEARS << '\n';
+            std::cout << "Asimov events    : " << std::fixed << std::setprecision(6) << asimov_events * EXPOSURE_YEARS
+                      << '\n';
         }
 
         const auto summary =
@@ -580,23 +543,17 @@ int main(int argc, char** argv) {
 
         if (root_process) {
             const fs::path summary_file = result_dir / config->name / "summary.dat";
-
             write_run_summary(summary_file, summary);
-
             std::cout << "Run summary: " << summary_file << '\n';
         }
     } catch (const std::exception& error) {
         if (root_process)
             std::cerr << "[fatal] " << error.what() << '\n';
-
         exit_code = 1;
     }
 
     int global_exit_code = 0;
-
     MPI_Allreduce(&exit_code, &global_exit_code, 1, MPI_INT, MPI_MAX, MPI_COMM_WORLD);
-
     MPI_Finalize();
-
     return global_exit_code;
 }
