@@ -52,6 +52,11 @@ namespace {
 
     constexpr std::uint64_t LOG_EVERY_N_EVAL = 500;
 
+    constexpr Index_t COSZENITH_SAMPLES_PER_BIN = 1;
+    constexpr Index_t ENERGY_SAMPLES_PER_BIN    = 5;
+
+    constexpr nt::FluxRebinOptions REBIN_OPTIONS{false, true};
+
     int mpi_rank_from_environment() {
         for (const char* name : {"PMI_RANK", "PMIX_RANK", "OMPI_COMM_WORLD_RANK"}) {
             if (const char* value = std::getenv(name))
@@ -61,11 +66,11 @@ namespace {
     }
 
     struct Context {
-        const nt::EarthProfile*      prem     = nullptr;
-        const nt::ResponseArray*     response = nullptr;
-        const nt::Flux*              initial  = nullptr;
-        const nt::EventDistribution* data     = nullptr;
-        nt::EarthPropagator*         solver   = nullptr;
+        const nt::EarthProfile*      prem         = nullptr;
+        const nt::ResponseArray*     response     = nullptr;
+        const nt::Flux*              initial_fine = nullptr;
+        const nt::EventDistribution* data         = nullptr;
+        nt::EarthPropagator*         solver       = nullptr;
 
         std::uint64_t evaluations = 0;
         bool          console     = false;
@@ -96,7 +101,10 @@ namespace {
 
             const auto earth = nt::make_layered_constant_5(
                 *ctx.prem, nda::make_view1d(static_cast<const Real_t*>(q.data()), q.size()));
-            const auto propagated = ctx.solver->propagate(*ctx.initial, *ctx.prem, earth);
+            const auto propagated_fine = ctx.solver->propagate(*ctx.initial_fine, *ctx.prem, earth);
+            const auto propagated =
+                nt::rebin_flux(propagated_fine, ctx.response->coszenith.view(), ctx.response->true_energy_gev.view(),
+                               COSZENITH_SAMPLES_PER_BIN, ENERGY_SAMPLES_PER_BIN, REBIN_OPTIONS);
             const auto prediction = nt::predict_events(propagated, *ctx.response);
 
             double value = 0.0;
@@ -182,16 +190,23 @@ int main() {
         const auto response   = nt::load_trident_response();
         const auto prem       = nt::load_prem();
         const auto daemonflux = nt::load_daemonflux(daemonflux_file, "IceCube");
-        const auto initial = nt::resample_flux(daemonflux, response.coszenith.view(), response.true_energy_gev.view());
+
+        const auto fine_coszenith =
+            nt::sample_coszenith_bin_midpoints(response.coszenith_edges.view(), COSZENITH_SAMPLES_PER_BIN);
+        const auto fine_energy =
+            nt::sample_log_energy_bin_midpoints(response.true_energy_edges_gev.view(), ENERGY_SAMPLES_PER_BIN);
+        const auto initial_fine = nt::resample_flux(daemonflux, fine_coszenith.view(), fine_energy.view());
 
         nt::PropagationOptions options;
         options.interactions = true;
-        options.threads      = 1;
 
-        nt::EarthPropagator solver(initial, options);
+        nt::EarthPropagator solver(initial_fine, options);
 
-        // Asimov data are generated from the full PREM profile.
-        const auto asimov_flux = solver.propagate(initial, prem);
+        // Asimov data are generated from the full PREM profile on the same fine grid
+        // used by every likelihood evaluation.
+        const auto asimov_fine = solver.propagate(initial_fine, prem);
+        const auto asimov_flux = nt::rebin_flux(asimov_fine, response.coszenith.view(), response.true_energy_gev.view(),
+                                                COSZENITH_SAMPLES_PER_BIN, ENERGY_SAMPLES_PER_BIN, REBIN_OPTIONS);
         const auto asimov_data = nt::predict_events(asimov_flux, response);
 
         if (root_process) {
@@ -209,7 +224,10 @@ int main() {
             std::cout << "Exposure         : " << EXPOSURE_YEARS << " year\n";
             std::cout << "Interactions     : enabled\n";
             std::cout << "cosZenith bins   : " << response.coszenith.extent(0) << '\n';
+            std::cout << "cosZenith samples: 1 center/bin\n";
             std::cout << "true-energy bins : " << response.true_energy_gev.extent(0) << '\n';
+            std::cout << "Energy samples   : 5 log-midpoints/bin\n";
+            std::cout << "Energy rebin     : linear interpolation\n";
             std::cout << "Asimov events    : " << std::fixed << std::setprecision(6) << asimov_events * EXPOSURE_YEARS
                       << '\n';
 
@@ -235,12 +253,12 @@ int main() {
         }
 
         Context context;
-        context.prem     = &prem;
-        context.response = &response;
-        context.initial  = &initial;
-        context.data     = &asimov_data;
-        context.solver   = &solver;
-        context.console  = root_process;
+        context.prem         = &prem;
+        context.response     = &response;
+        context.initial_fine = &initial_fine;
+        context.data         = &asimov_data;
+        context.solver       = &solver;
+        context.console      = root_process;
 
         int ndims    = 5;
         int nPar     = 5;
