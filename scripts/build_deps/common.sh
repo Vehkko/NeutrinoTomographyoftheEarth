@@ -66,6 +66,29 @@ CXX="$(command -v icpx)"
 FC="$(command -v ifx)"
 
 # ============================================================
+# Intel LLVM binutils
+#
+# oneAPI ships its own LLVM binutils below:
+#
+#   compiler/<version>/bin/compiler/
+#
+# This directory is intentionally not added to PATH by oneAPI.
+# Use the tools belonging to the same compiler installation as icpx.
+# ============================================================
+
+CXX_REAL="$(readlink -f "${CXX}")"
+INTEL_COMPILER_BIN="$(dirname "${CXX_REAL}")"
+INTEL_LLVM_BIN="${INTEL_COMPILER_BIN}/compiler"
+
+AR="${INTEL_LLVM_BIN}/llvm-ar"
+RANLIB="${INTEL_LLVM_BIN}/llvm-ranlib"
+NM="${INTEL_LLVM_BIN}/llvm-nm"
+
+require_executable "${AR}"
+require_executable "${RANLIB}"
+require_executable "${NM}"
+
+# ============================================================
 # Intel MPI
 #
 # NEVER use mpicc/mpicxx/mpifort/mpirun from PATH.
@@ -100,12 +123,20 @@ export I_MPI_F90="${FC}"
 # Optimization
 # ============================================================
 
-CFLAGS="-O3 -march=native"
-CXXFLAGS="-O3 -march=native"
-FCFLAGS="-O3 -march=native"
+CFLAGS="-O3 -march=native -mtune=native -flto=full -DNDEBUG"
+CXXFLAGS="-O3 -march=native -mtune=native -flto=full -DNDEBUG"
+
+# ifx accepts plain -flto; unlike icx/icpx it does not accept
+# the =full argument form.
+FCFLAGS="-O3 -march=native -flto"
+
+# Link flags must match the compiler driver performing the link.
+LDFLAGS="-flto=full"
+FLDFLAGS="-flto"
 
 export CC CXX FC
-export CFLAGS CXXFLAGS FCFLAGS
+export AR RANLIB NM
+export CFLAGS CXXFLAGS FCFLAGS LDFLAGS FLDFLAGS
 
 # ============================================================
 # Project-local dependencies

@@ -22,7 +22,11 @@ cd "${BDIR}"
     --enable-shared \
     --enable-static \
     CC="${CC}" \
-    CFLAGS="${CFLAGS}"
+    AR="${AR}" \
+    RANLIB="${RANLIB}" \
+    NM="${NM}" \
+    CFLAGS="${CFLAGS}" \
+    LDFLAGS="${LDFLAGS}"
 
 make -j"${JOBS}"
 make install

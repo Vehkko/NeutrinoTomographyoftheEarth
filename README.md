@@ -14,6 +14,7 @@ Host tools:
 
 - Linux x86-64
 - Intel oneAPI
+  - llvm-ar
   - Intel C/C++ Compiler (`icx`, `icpx`)
   - Intel Fortran Compiler (`ifx`)
   - Intel MPI

@@ -10,6 +10,14 @@ add_rules("plugin.compile_commands.autoupdate", { outputdir = "." })
 -- ============================================================
 -- Fixed compiler toolchain
 -- ============================================================
+local cmplr_root = os.getenv("CMPLR_ROOT")
+
+if not cmplr_root then
+	raise("CMPLR_ROOT is not set; activate Intel oneAPI setvars.sh first")
+end
+
+local intel_llvm_bin = path.join(cmplr_root, "bin", "compiler")
+local llvm_ar = path.join(intel_llvm_bin, "llvm-ar")
 
 -- Intel oneAPI icx/icpx use a Clang-compatible driver interface.
 -- The generic@actual form avoids depending on whether a particular
@@ -18,6 +26,7 @@ set_toolset("cc", "clang@icx")
 set_toolset("cxx", "clang++@icpx")
 set_toolset("ld", "clang++@icpx")
 set_toolset("sh", "clang++@icpx")
+set_toolset("ar", llvm_ar)
 
 -- ============================================================
 -- Paths
@@ -52,7 +61,11 @@ function apply_common()
 	set_rundir("$(projectdir)")
 
 	if is_mode("release") then
-		add_cxxflags("-O3", "-march=native", { force = true })
+		add_defines("NDEBUG")
+
+		add_cxxflags("-O3", "-march=native", "-mtune=native", "-flto=full", { force = true })
+
+		add_ldflags("-flto=full", { force = true })
 	else
 		add_cxxflags("-O0", "-g", { force = true })
 	end
@@ -70,7 +83,27 @@ end
 function apply_native_stack()
 	apply_common()
 
-	add_links("nuSQuIDS", "SQuIDS", "hdf5_hl_cpp", "hdf5_cpp", "hdf5_hl", "hdf5", "gsl", "gslcblas", "z")
+	-- Hot numerical stack.
+	--
+	-- Use the LTO static archives explicitly so the final icpx link can
+	-- optimize across:
+	--
+	--     project -> nuSQuIDS -> SQuIDS -> GSL
+	--
+	-- Keep HDF5/zlib dynamic because they are startup/I/O dependencies,
+	-- not likelihood hot-path libraries.
+	add_links(
+		"$(projectdir)/third_party/local/lib/libnuSQuIDS.a",
+		"$(projectdir)/third_party/local/lib/libSQuIDS.a",
+		"$(projectdir)/third_party/local/lib/libgsl.a",
+		"$(projectdir)/third_party/local/lib/libgslcblas.a",
+
+		"hdf5_hl_cpp",
+		"hdf5_cpp",
+		"hdf5_hl",
+		"hdf5",
+		"z"
+	)
 end
 
 function apply_mkl()

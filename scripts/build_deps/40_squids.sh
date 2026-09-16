@@ -26,6 +26,13 @@ cd "${BDIR}"
     --libdir=lib \
     --with-gsl="${PREFIX}"
 
+# Verify that our LTO toolchain reached the generated Makefile.
+grep -Fq -- "-flto=full" settings.mk ||
+    fatal "SQuIDS did not inherit -flto=full"
+
+grep -Fq "AR:=${AR}" settings.mk ||
+    fatal "SQuIDS did not select llvm-ar"
+
 make -j"${JOBS}"
 make install
 

@@ -42,7 +42,7 @@ grep -q '__INTEL_LLVM_COMPILER' "${WORK}/include/multinest.h" ||
 # Configure
 # ------------------------------------------------------------
 
-cmake \
+LDFLAGS="${FLDFLAGS}" cmake \
     -S "${WORK}" \
     -B "${BDIR}" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -56,9 +56,15 @@ cmake \
     -DMPI_CXX_COMPILER="${MPI_CXX}" \
     -DMPI_Fortran_COMPILER="${MPI_FC}" \
     \
+    -DCMAKE_AR="${AR}" \
+    -DCMAKE_RANLIB="${RANLIB}" \
+    -DCMAKE_NM="${NM}" \
+    \
     -DCMAKE_C_FLAGS_RELEASE="${CFLAGS}" \
     -DCMAKE_CXX_FLAGS_RELEASE="${CXXFLAGS}" \
     -DCMAKE_Fortran_FLAGS_RELEASE="${FCFLAGS}" \
+    -DCMAKE_SHARED_LINKER_FLAGS_RELEASE="${FLDFLAGS}" \
+    -DCMAKE_EXE_LINKER_FLAGS_RELEASE="${FLDFLAGS}" \
     \
     -DBLA_VENDOR=Intel10_64lp_seq \
     -DBLA_STATIC=OFF \
