@@ -368,3 +368,53 @@ on_run(function(target)
 		curdir = os.projectdir(),
 	})
 end)
+
+-- ============================================================
+-- MultiNest model comparison
+-- ============================================================
+
+target("case_tomography_mnest_model_comparison_unconstrained")
+set_kind("binary")
+
+apply_native_stack()
+apply_mkl()
+apply_intel_mpi()
+
+add_links("multinest_mpi")
+
+add_deps("ntcore")
+add_files("cases/tomography_mnest_model_comparison_unconstrained/main.cpp")
+
+on_run(function(target)
+	local mpi_root = os.getenv("I_MPI_ROOT")
+
+	if not mpi_root or mpi_root == "" then
+		raise("I_MPI_ROOT is not set. Activate Intel oneAPI before running an MPI target.")
+	end
+
+	local mpiexec = path.join(mpi_root, "bin", "mpiexec")
+
+	if not os.isfile(mpiexec) then
+		raise("Intel MPI launcher not found: " .. mpiexec)
+	end
+
+	local ranks = tonumber(os.getenv("NT_MPI_RANKS") or "24")
+
+	os.execv(target:targetfile(), {
+		"--prepare",
+	}, {
+		curdir = os.projectdir(),
+	})
+
+	for run = 0, 7 do
+		os.execv(mpiexec, {
+			"-n",
+			tostring(ranks),
+			target:targetfile(),
+			"--run",
+			tostring(run),
+		}, {
+			curdir = os.projectdir(),
+		})
+	end
+end)

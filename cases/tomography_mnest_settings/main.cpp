@@ -56,7 +56,7 @@ namespace {
     constexpr Index_t COSZENITH_SAMPLES_PER_BIN = 1;
     constexpr Index_t ENERGY_SAMPLES_PER_BIN    = 5;
 
-    constexpr nt::FluxRebinOptions REBIN_OPTIONS{false, true};
+    constexpr nt::FluxRebinOptions REBIN_OPTIONS{.interpolate_coszenith = false, .interpolate_energy = true};
 
     constexpr std::array<Real_t, 6> LAYER_EDGES_KM = {
         0.0, 1221.0, 3480.0, 4811.0, 5700.0, 6371.0,

@@ -5,6 +5,7 @@
 #include <nt/flux.hpp>
 #include <nt/propagation.hpp>
 #include <nt/response.hpp>
+#include <nt/timer.hpp>
 #include <nt/types.hpp>
 #include <vndarray/ndarray.hpp>
 
@@ -36,8 +37,8 @@ namespace {
     constexpr int    MN_IS        = 0;
     constexpr int    MN_MMODAL    = 1;
     constexpr int    MN_CEFF      = 0;
-    constexpr int    MN_NLIVE     = 1000;
-    constexpr double MN_TOL       = 0.2;
+    constexpr int    MN_NLIVE     = 2000;
+    constexpr double MN_TOL       = 0.1;
     constexpr double MN_EFR       = 0.3;
     constexpr int    MN_MAX_MODES = 100;
     constexpr int    MN_UPD_INT   = 100;
@@ -55,7 +56,7 @@ namespace {
     constexpr Index_t COSZENITH_SAMPLES_PER_BIN = 1;
     constexpr Index_t ENERGY_SAMPLES_PER_BIN    = 5;
 
-    constexpr nt::FluxRebinOptions REBIN_OPTIONS{false, true};
+    constexpr nt::FluxRebinOptions REBIN_OPTIONS{.interpolate_coszenith = false, .interpolate_energy = true};
 
     int mpi_rank_from_environment() {
         for (const char* name : {"PMI_RANK", "PMIX_RANK", "OMPI_COMM_WORLD_RANK"}) {
@@ -204,10 +205,13 @@ int main() {
 
         // Asimov data are generated from the full PREM profile on the same fine grid
         // used by every likelihood evaluation.
+        nt::Timer  timer;
         const auto asimov_fine = solver.propagate(initial_fine, prem);
         const auto asimov_flux = nt::rebin_flux(asimov_fine, response.coszenith.view(), response.true_energy_gev.view(),
                                                 COSZENITH_SAMPLES_PER_BIN, ENERGY_SAMPLES_PER_BIN, REBIN_OPTIONS);
         const auto asimov_data = nt::predict_events(asimov_flux, response);
+        if (root_process)
+            std::cout << "[TIME] Asimov construction : " << timer.seconds() << " s\n";
 
         if (root_process) {
             Real_t asimov_events = 0.0;
@@ -269,9 +273,12 @@ int main() {
         if (multinest_root.back() != '/')
             multinest_root.push_back('/');
 
+        timer.reset();
         nested::run(MN_IS, MN_MMODAL, MN_CEFF, MN_NLIVE, MN_TOL, MN_EFR, ndims, nPar, nClsPar, MN_MAX_MODES, MN_UPD_INT,
                     MN_ZTOL, multinest_root.c_str(), MN_SEED, pWrap, MN_FB, MN_RESUME, MN_OUTFILE, MN_INIT_MPI,
                     MN_LOG_ZERO, MN_MAXITER, loglike, dumper, &context);
+        if (root_process)
+            std::cout << "[TIME] MultiNest wall time  : " << timer.seconds() << " s\n";
 
         if (!root_process)
             return 0;
