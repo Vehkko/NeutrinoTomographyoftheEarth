@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -590,14 +591,28 @@ namespace {
         file << "logZ_error=" << context.logz_error << '\n';
     }
 
+    void plot_run(const RunConfig& config) {
+        const std::string python  = "runtime/python/venv/bin/python";
+        const std::string script  = "cases/tomography_mnest_model_comparison_unconstrained/plot_results.py";
+        const std::string command = python + " " + script + " --run-dir " + run_directory(config).string();
+
+        std::cout << "[PLOT] " << run_directory(config) << '\n';
+
+        const int status = std::system(command.c_str());
+        if (status != 0)
+            std::cerr << "[WARN] plotting failed for " << run_directory(config) << " (status=" << status << ")\n";
+    }
+
     int run_atomic(const RunConfig& config, std::size_t run_index, int rank) {
         const bool root_process = rank == 0;
 
         validate_run_info(config);
 
         if (is_completed(config)) {
-            if (root_process)
+            if (root_process) {
                 std::cout << "[SKIP] " << run_directory(config) << " is already complete\n";
+                plot_run(config);
+            }
             return 0;
         }
 
@@ -726,6 +741,8 @@ namespace {
                 std::cout << "       max log L       : " << context.max_loglike << '\n';
                 std::cout << "       run summary     : " << summary_file << '\n';
                 std::cout << "       completion file : " << run_directory(config) / ".completed" << '\n';
+
+                plot_run(config);
 
                 if (all_runs_completed()) {
                     try {
