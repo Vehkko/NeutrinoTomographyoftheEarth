@@ -418,3 +418,19 @@ on_run(function(target)
 		})
 	end
 end)
+
+-- ============================================================
+-- Constrained Five-layer constant-density MultiNest settings scan
+-- ============================================================
+
+target("case_tomography_mnest_constrained")
+set_kind("binary")
+
+apply_native_stack()
+apply_mkl()
+apply_intel_mpi()
+apply_mpi_run(24)
+
+add_links("multinest_mpi")
+add_deps("ntcore")
+add_files("cases/tomography_mnest_constrained/main.cpp")
