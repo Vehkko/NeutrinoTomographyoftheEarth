@@ -44,7 +44,7 @@ namespace {
     constexpr double COUNT_FLOOR = 1.0e-10;
     constexpr double LOG_ZERO    = -1.0e90;
 
-    constexpr int    N_LIVE          = 8000;
+    constexpr int    N_LIVE          = 5000;
     constexpr double TOLERANCE       = 0.2;
     constexpr double EFFICIENCY      = 0.3;
     constexpr int    UPDATE_INTERVAL = 1000;
