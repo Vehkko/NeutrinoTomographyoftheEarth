@@ -187,7 +187,7 @@ PY
 echo
 
 # ============================================================
-# Generate data
+# Generate the original central-flux table
 # ============================================================
 
 if [[ "${FORCE:-0}" == "1" ]]; then
@@ -199,4 +199,22 @@ else
     "${PYTHON}" \
         "${GENERATOR}" \
         --output "${OUTPUT}"
+fi
+
+# ============================================================
+# Five selected correlated flux nuisances, in a separate table
+# ============================================================
+
+GENERATOR_5UNC="${PROJECT_ROOT}/tools/daemonflux/generate_5unc.py"
+OUTPUT_5UNC="${PROJECT_ROOT}/data/generated/daemonflux/daemonflux_0.8.2_5unc.h5"
+
+if [[ "${FORCE:-0}" == "1" ]]; then
+    "${PYTHON}" \
+        "${GENERATOR_5UNC}" \
+        --output "${OUTPUT_5UNC}" \
+        --force
+else
+    "${PYTHON}" \
+        "${GENERATOR_5UNC}" \
+        --output "${OUTPUT_5UNC}"
 fi
